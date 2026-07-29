@@ -3,9 +3,27 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: 4.15.0
-domain: ghostgpu.dev
+domain: dev
 layout:
 - go.kubebuilder.io/v4
 projectName: ghostgpu
 repo: github.com/santimillang/ghostgpu
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: dev
+  group: ghostgpu
+  kind: GPUModel
+  path: github.com/santimillang/ghostgpu/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: dev
+  group: ghostgpu
+  kind: GPUPool
+  path: github.com/santimillang/ghostgpu/api/v1alpha1
+  version: v1alpha1
 version: "3"

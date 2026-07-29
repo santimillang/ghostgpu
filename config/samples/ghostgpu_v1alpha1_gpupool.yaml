@@ -1,0 +1,20 @@
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  labels:
+    app.kubernetes.io/name: ghostgpu
+    app.kubernetes.io/managed-by: kustomize
+  name: h100-pool
+spec:
+  modelRef: h100-sxm
+  # Only kwok-managed nodes are ever modified, whatever this matches.
+  nodeSelector:
+    type: kwok
+  gpusPerNode: 8
+  advertise:
+    dra: true
+    extendedResource: true
+  topology:
+    # 8 GPUs per node in domains of 4 => two NVLink domains per node.
+    nvlinkDomainSize: 4
+    numaAware: true

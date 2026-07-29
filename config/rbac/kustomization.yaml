@@ -18,3 +18,14 @@ resources:
 - metrics_auth_role.yaml
 - metrics_auth_role_binding.yaml
 - metrics_reader_role.yaml
+# For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
+# default, aiding admins in cluster management. Those roles are
+# not used by the ghostgpu itself. You can comment the following lines
+# if you do not want those helpers be installed with your Project.
+- gpupool_admin_role.yaml
+- gpupool_editor_role.yaml
+- gpupool_viewer_role.yaml
+- gpumodel_admin_role.yaml
+- gpumodel_editor_role.yaml
+- gpumodel_viewer_role.yaml
+
