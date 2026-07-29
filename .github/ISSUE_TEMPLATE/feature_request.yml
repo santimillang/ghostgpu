@@ -1,0 +1,54 @@
+name: Feature request
+description: Propose a new capability or a change in behavior
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ghostgpu's scope is defined by the design spec in
+        `docs/superpowers/specs/`. Proposals that expand scope should say what
+        they would add — and, just as importantly, what stays out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: >
+        Describe the situation you are stuck in, not the solution you have in
+        mind. What are you unable to test today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should ghostgpu do?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: fidelity
+    attributes:
+      label: Fidelity tier
+      description: >
+        How faithful would this need to be? "Faithful" means byte-comparable to
+        real output; "approximated" means plausible but not measured from
+        hardware.
+      options:
+        - Faithful — must match real hardware/API output exactly
+        - Approximated — plausible behavior is sufficient
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: >
+        Does an existing project already do this? `fake-gpu-operator` covers
+        capacity advertising, dynamic metrics, and basic DRA — if it already
+        solves your problem, that is worth knowing.
+    validations:
+      required: false
