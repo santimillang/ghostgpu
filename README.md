@@ -1,5 +1,15 @@
 # ghostgpu
 
+[![Tests](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml/badge.svg)](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml)
+[![Lint](https://github.com/santimillang/ghostgpu/actions/workflows/lint.yml/badge.svg)](https://github.com/santimillang/ghostgpu/actions/workflows/lint.yml)
+[![E2E](https://github.com/santimillang/ghostgpu/actions/workflows/test-e2e.yml/badge.svg)](https://github.com/santimillang/ghostgpu/actions/workflows/test-e2e.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/santimillang/ghostgpu)](https://goreportcard.com/report/github.com/santimillang/ghostgpu)
+[![Go Reference](https://pkg.go.dev/badge/github.com/santimillang/ghostgpu.svg)](https://pkg.go.dev/github.com/santimillang/ghostgpu)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/santimillang/ghostgpu)](go.mod)
+[![Release](https://img.shields.io/github/v/release/santimillang/ghostgpu?include_prereleases&sort=semver&label=release)](https://github.com/santimillang/ghostgpu/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![DCO](https://img.shields.io/badge/DCO-required-brightgreen.svg)](https://developercertificate.org/)
+
 Simulate GPU clusters on Kubernetes. Test GPU-aware schedulers, autoscalers, and platform tooling with **zero GPU hardware**.
 
 ghostgpu builds on [kwok](https://kwok.sigs.k8s.io/) and publishes Dynamic Resource Allocation (DRA) `ResourceSlice`s plus legacy extended-resource capacity, so a real `kube-scheduler` makes real placement decisions against hardware that does not exist.
@@ -39,6 +49,15 @@ make test                 # unit tests + envtest
 make test-e2e             # e2e against kwok + kind
 ```
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, testing layers, and PR process.
+
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Governance](GOVERNANCE.md) · [Maintainers](MAINTAINERS.md)
+- [Security policy and threat model](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+
 ## License
 
-Apache-2.0. Contributions require [DCO](https://developercertificate.org/) sign-off (`git commit -s`).
+Apache-2.0 — see [LICENSE](LICENSE). Contributions require [DCO](https://developercertificate.org/) sign-off (`git commit -s`).
