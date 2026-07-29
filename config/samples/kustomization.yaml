@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- ghostgpu_v1alpha1_gpumodel.yaml
+- ghostgpu_v1alpha1_gpupool.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
