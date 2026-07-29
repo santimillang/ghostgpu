@@ -2,6 +2,7 @@ name: Lint
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions: {}
@@ -10,7 +11,7 @@ jobs:
   lint:
     permissions:
       contents: read
-    name: Run on Ubuntu
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
