@@ -2,6 +2,7 @@ name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions: {}
@@ -10,7 +11,7 @@ jobs:
   test:
     permissions:
       contents: read
-    name: Run on Ubuntu
+    name: unit
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
