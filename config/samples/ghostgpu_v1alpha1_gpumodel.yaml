@@ -1,0 +1,14 @@
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  labels:
+    app.kubernetes.io/name: ghostgpu
+    app.kubernetes.io/managed-by: kustomize
+  name: h100-sxm
+spec:
+  vendor: nvidia
+  # Must match what real GPU Feature Discovery reports: this value is
+  # surfaced verbatim in the nvidia.com/gpu.product node label.
+  productName: NVIDIA-H100-SXM
+  memory: 80Gi
+  computeCapability: "9.0"
