@@ -1,0 +1,87 @@
+name: Bug report
+description: Something in ghostgpu behaves incorrectly
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The most useful bug reports let a maintainer
+        reproduce the problem without guessing.
+
+        **Security vulnerability?** Do not file it here — use
+        [private reporting](https://github.com/santimillang/ghostgpu/security/advisories/new).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        Steps, ideally with the exact GPUModel/GPUPool manifests and any pod
+        specs involved. A minimal reproduction is worth far more than a
+        description.
+      render: yaml
+    validations:
+      required: true
+
+  - type: input
+    id: ghostgpu-version
+    attributes:
+      label: ghostgpu version
+      placeholder: "v0.1.0, or a commit SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: k8s-version
+    attributes:
+      label: Kubernetes version
+      description: Output of `kubectl version`
+      placeholder: "v1.36.1"
+    validations:
+      required: true
+
+  - type: input
+    id: kwok-version
+    attributes:
+      label: kwok / kwokctl version
+      placeholder: "v0.8.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: advertise-path
+    attributes:
+      label: Which advertising path?
+      description: DRA and extended resources behave differently — this narrows it quickly.
+      options:
+        - DRA (ResourceSlices)
+        - Legacy extended resources (nvidia.com/gpu)
+        - Both
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Operator logs, scheduler events, or `kubectl describe` output.
+      render: shell
+    validations:
+      required: false
