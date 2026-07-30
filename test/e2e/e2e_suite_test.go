@@ -64,11 +64,57 @@ var _ = BeforeSuite(func() {
 
 	configureKubectlKubeRC()
 	setupCertManager()
+	deployManager()
 })
 
 var _ = AfterSuite(func() {
+	undeployManager()
 	teardownCertManager()
 })
+
+// deployManager installs the CRDs and the controller-manager once for the whole
+// suite.
+//
+// This deliberately lives at suite scope rather than in a Describe's BeforeAll.
+// Ginkgo randomizes the order of top-level containers, so a suite whose manager
+// is deployed by one container and torn down by its AfterAll would leave any
+// other container running against an empty cluster, depending on the seed.
+func deployManager() {
+	By("creating the manager namespace")
+	cmd := exec.Command("kubectl", "create", "ns", namespace)
+	// Already-exists is fine: the namespace is also part of the deploy manifests.
+	_, _ = utils.Run(cmd)
+
+	By("labeling the namespace to enforce the restricted security policy")
+	cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
+		"pod-security.kubernetes.io/enforce=restricted")
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
+
+	By("installing CRDs")
+	cmd = exec.Command("make", "install")
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to install CRDs")
+
+	By("deploying the controller-manager")
+	cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+}
+
+func undeployManager() {
+	By("undeploying the controller-manager")
+	cmd := exec.Command("make", "undeploy")
+	_, _ = utils.Run(cmd)
+
+	By("uninstalling CRDs")
+	cmd = exec.Command("make", "uninstall")
+	_, _ = utils.Run(cmd)
+
+	By("removing the manager namespace")
+	cmd = exec.Command("kubectl", "delete", "ns", namespace)
+	_, _ = utils.Run(cmd)
+}
 
 // Disable kubectl kuberc by default for test isolation.
 // This prevents local kubectl configurations from affecting test behavior.

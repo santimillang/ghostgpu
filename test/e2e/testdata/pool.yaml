@@ -1,0 +1,29 @@
+# A pool of 8 H100s per node with 4-GPU NVLink domains.
+#
+# spec.advertise is deliberately omitted. A manifest that leaves it out must
+# still advertise on both paths, which is a defect this project has already
+# shipped once: the nested fields carried defaults but their parent object did
+# not, so the API server had nothing to default into and the pool silently
+# advertised nothing.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-SXM
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: h100-pool
+spec:
+  modelRef: h100
+  nodeSelector:
+    type: kwok
+  gpusPerNode: 8
+  topology:
+    nvlinkDomainSize: 4
+    numaAware: true
