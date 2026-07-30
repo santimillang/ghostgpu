@@ -100,6 +100,25 @@ type GPUPoolSpec struct {
 	// +optional
 	Advertise AdvertiseSpec `json:"advertise,omitempty"`
 
+	// migPartition declares which MIG instances actually exist on each GPU.
+	//
+	// Leave it empty to model *dynamic* MIG, as NVIDIA's DRA driver does: every
+	// profile the hardware supports is advertised and the scheduler picks,
+	// with the shared counters preventing overlapping choices.
+	//
+	// Set it to model *static* MIG, as the device plugin does: the instances
+	// below are the only ones that exist, exactly as though an administrator
+	// had created them with `nvidia-smi mig -cgi`. This is what makes the
+	// legacy extended-resource path exact rather than approximate — the
+	// per-profile counts then sum to something the hardware can actually
+	// satisfy, because that is genuinely all there is.
+	//
+	// The declared instances must fit one GPU's budget.
+	// +listType=map
+	// +listMapKey=profile
+	// +optional
+	MIGPartition []MIGPartitionEntry `json:"migPartition,omitempty"`
+
 	// sharingMode is how each physical GPU is divided.
 	//
 	// "none" advertises whole GPUs. "mig" partitions each GPU into MIG
@@ -116,6 +135,20 @@ type GPUPoolSpec struct {
 
 	// +optional
 	Topology TopologySpec `json:"topology,omitempty"`
+}
+
+// MIGPartitionEntry is how many instances of one profile each GPU carries.
+type MIGPartitionEntry struct {
+	// profile names a MIG profile the GPU's model supports.
+	// +kubebuilder:validation:Pattern=`^[0-9]+g\.[0-9]+gb$`
+	// +required
+	Profile string `json:"profile"`
+
+	// count is how many instances of this profile exist per physical GPU.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=8
+	// +required
+	Count int32 `json:"count"`
 }
 
 // SharingMode is how a physical GPU is divided among workloads.

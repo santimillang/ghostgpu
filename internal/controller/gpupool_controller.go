@@ -106,6 +106,15 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			setReady(&pool, metav1.ConditionFalse, "MIGProfilesInvalid", err.Error())
 			return ctrl.Result{}, r.Status().Update(ctx, &pool)
 		}
+
+		// A partition that cannot fit one card is worse than an unschedulable
+		// profile. It is a claim about what the hardware is carrying, so
+		// publishing it would advertise capacity nothing can satisfy — the
+		// exact failure this feature exists to remove.
+		if err = mig.ValidatePartition(pool.Spec.MIGPartition, table); err != nil {
+			setReady(&pool, metav1.ConditionFalse, "MIGPartitionInvalid", err.Error())
+			return ctrl.Result{}, r.Status().Update(ctx, &pool)
+		}
 	}
 
 	var nodes corev1.NodeList

@@ -84,7 +84,14 @@ func BuildMIGSlices(
 	nodeName string,
 ) []*resourcev1.ResourceSlice {
 	gpus := pool.Spec.GPUsPerNode
+
+	// A declared partition means static MIG: publish exactly the instances the
+	// administrator created. Without one, publish every profile the hardware
+	// supports and let the counters keep overlapping choices apart.
 	instances := mig.Expand(gpus, table)
+	if len(pool.Spec.MIGPartition) > 0 {
+		instances = mig.ExpandPartitioned(gpus, table, pool.Spec.MIGPartition)
+	}
 
 	counterShards := ceilDiv(int(gpus), MaxCounterSetsPerSlice)
 	deviceShards := ceilDiv(len(instances), MaxMIGDevicesPerSlice)

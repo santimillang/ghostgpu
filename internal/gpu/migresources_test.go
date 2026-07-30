@@ -44,12 +44,12 @@ func TestMaxInstancesMatchesRealHardware(t *testing.T) {
 	table := h100Table(t)
 
 	want := map[string]int64{
-		"1g.10gb": 7,
-		"1g.20gb": 4,
-		"2g.20gb": 3,
-		"3g.40gb": 2,
-		"4g.40gb": 1,
-		"7g.80gb": 1,
+		"1g.10gb":       7,
+		"1g.20gb":       4,
+		"2g.20gb":       3,
+		"3g.40gb":       2,
+		"4g.40gb":       1,
+		profileWholeGPU: 1,
 	}
 
 	for _, profile := range table.Profiles {
@@ -143,6 +143,75 @@ func TestNodeResourcesOmitsUnsatisfiableProfiles(t *testing.T) {
 	}
 	if _, present := got[MIGResourceName("1g.10gb")]; !present {
 		t.Error("satisfiable profiles should still be advertised")
+	}
+}
+
+// The point of the whole feature: under a declared partition the advertised
+// counts sum to something the hardware can satisfy, so a scheduler filling the
+// node cannot overcommit it.
+func TestNodeResourcesUnderPartitionAreSatisfiable(t *testing.T) {
+	table := h100Table(t)
+	pool := migPool(t, 8)
+	pool.Spec.MIGPartition = []v1alpha1.MIGPartitionEntry{
+		{Profile: "3g.40gb", Count: 1},
+		{Profile: "1g.10gb", Count: 4},
+	}
+
+	got := NodeResources(pool, table)
+
+	if q := got[MIGResourceName("3g.40gb")]; q.Value() != 8 {
+		t.Errorf("mig-3g.40gb = %d, want 8 (1 per GPU x 8)", q.Value())
+	}
+	if q := got[MIGResourceName("1g.10gb")]; q.Value() != 32 {
+		t.Errorf("mig-1g.10gb = %d, want 32 (4 per GPU x 8)", q.Value())
+	}
+
+	// Profiles not in the partition do not exist on this hardware right now.
+	for _, absent := range []string{profileWholeGPU, "1g.20gb", "2g.20gb", "4g.40gb"} {
+		if q, present := got[MIGResourceName(absent)]; present {
+			t.Errorf("mig-%s advertised as %d, but the partition does not create it",
+				absent, q.Value())
+		}
+	}
+
+	// The sum has to fit one card's budget, which is what makes it exact.
+	var slices int32
+	usedMemory := resource.NewQuantity(0, resource.BinarySI)
+	for _, p := range table.Profiles {
+		q := got[MIGResourceName(p.Name)]
+		perGPU := int32(q.Value() / 8)
+		slices += p.Slices * perGPU
+		for range perGPU {
+			usedMemory.Add(p.Memory)
+		}
+	}
+	if slices > table.Budget.Slices {
+		t.Errorf("advertised instances consume %d slices, more than the %d a GPU has",
+			slices, table.Budget.Slices)
+	}
+	if usedMemory.Cmp(table.Budget.Memory) > 0 {
+		t.Errorf("advertised instances consume %s, more than the %s a GPU has",
+			usedMemory.String(), table.Budget.Memory.String())
+	}
+}
+
+// The contrast that motivates the feature. Without a partition the counts are
+// alternatives, and their sum is not satisfiable — deliberately, and recorded
+// in the design spec's approximated tier.
+func TestNodeResourcesWithoutPartitionOversubscribe(t *testing.T) {
+	table := h100Table(t)
+	got := NodeResources(migPool(t, 1), table)
+
+	var slices int32
+	for _, p := range table.Profiles {
+		q := got[MIGResourceName(p.Name)]
+		slices += p.Slices * int32(q.Value())
+	}
+
+	if slices <= table.Budget.Slices {
+		t.Errorf("expected the dynamic projection to oversubscribe (%d slices vs %d);"+
+			" if this now fits, the approximated-tier note is stale",
+			slices, table.Budget.Slices)
 	}
 }
 
