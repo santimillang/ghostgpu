@@ -27,15 +27,16 @@ import (
 )
 
 const (
-	productH100 = "NVIDIA-H100-SXM"
-	poolName    = "h100-pool"
+	productH100  = "NVIDIA-H100-SXM"
+	poolName     = "h100-pool"
+	vendorNVIDIA = "nvidia"
 )
 
 func testModel() *v1alpha1.GPUModel {
 	return &v1alpha1.GPUModel{
 		ObjectMeta: metav1.ObjectMeta{Name: "h100"},
 		Spec: v1alpha1.GPUModelSpec{
-			Vendor:            "nvidia",
+			Vendor:            vendorNVIDIA,
 			ProductName:       productH100,
 			Memory:            resource.MustParse("80Gi"),
 			ComputeCapability: "9.0",
@@ -104,10 +105,10 @@ func TestBuildResourceSliceDeviceAttributes(t *testing.T) {
 	d := slice.Spec.Devices[5]
 
 	cases := map[resourcev1.QualifiedName]string{
-		"productName":  productH100,
-		"vendor":       "nvidia",
-		"uuid":         DeviceUUID(nodeA, 5),
-		"nvlinkDomain": domain1, // index 5, domain size 4
+		AttrProductName:  productH100,
+		AttrVendor:       vendorNVIDIA,
+		AttrUUID:         DeviceUUID(nodeA, 5),
+		AttrNVLinkDomain: domain1, // index 5, domain size 4
 	}
 	for name, want := range cases {
 		attr, ok := d.Attributes[name]
@@ -138,7 +139,7 @@ func TestBuildResourceSliceMemoryCapacity(t *testing.T) {
 
 func TestBuildResourceSliceOmitsNVLinkDomainWhenDisabled(t *testing.T) {
 	slice := BuildResourceSlice(testPool(4, 0, false), testModel(), nodeA)
-	if _, ok := slice.Spec.Devices[0].Attributes["nvlinkDomain"]; ok {
+	if _, ok := slice.Spec.Devices[0].Attributes[AttrNVLinkDomain]; ok {
 		t.Error("nvlinkDomain present, want omitted when nvlinkDomainSize is 0")
 	}
 }
@@ -146,7 +147,7 @@ func TestBuildResourceSliceOmitsNVLinkDomainWhenDisabled(t *testing.T) {
 func TestBuildResourceSliceNUMAAttribute(t *testing.T) {
 	t.Run("emitted when numaAware", func(t *testing.T) {
 		slice := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA)
-		attr, ok := slice.Spec.Devices[4].Attributes["numaNode"]
+		attr, ok := slice.Spec.Devices[4].Attributes[AttrNUMANode]
 		if !ok {
 			t.Fatal("numaNode attribute missing")
 		}
@@ -160,7 +161,7 @@ func TestBuildResourceSliceNUMAAttribute(t *testing.T) {
 
 	t.Run("omitted when not numaAware", func(t *testing.T) {
 		slice := BuildResourceSlice(testPool(8, 4, false), testModel(), nodeA)
-		if _, ok := slice.Spec.Devices[0].Attributes["numaNode"]; ok {
+		if _, ok := slice.Spec.Devices[0].Attributes[AttrNUMANode]; ok {
 			t.Error("numaNode present, want omitted when numaAware is false")
 		}
 	})
@@ -176,8 +177,8 @@ func TestBuildResourceSliceIsDeterministic(t *testing.T) {
 		t.Fatalf("device count differs: %d vs %d", len(a.Spec.Devices), len(b.Spec.Devices))
 	}
 	for i := range a.Spec.Devices {
-		av := *a.Spec.Devices[i].Attributes["uuid"].StringValue
-		bv := *b.Spec.Devices[i].Attributes["uuid"].StringValue
+		av := *a.Spec.Devices[i].Attributes[AttrUUID].StringValue
+		bv := *b.Spec.Devices[i].Attributes[AttrUUID].StringValue
 		if av != bv {
 			t.Errorf("device %d uuid differs between builds: %q vs %q", i, av, bv)
 		}
@@ -193,8 +194,8 @@ func TestBuildResourceSliceDiffersPerNode(t *testing.T) {
 	if a.Name == b.Name {
 		t.Errorf("slice names collide across nodes: %q", a.Name)
 	}
-	au := *a.Spec.Devices[0].Attributes["uuid"].StringValue
-	bu := *b.Spec.Devices[0].Attributes["uuid"].StringValue
+	au := *a.Spec.Devices[0].Attributes[AttrUUID].StringValue
+	bu := *b.Spec.Devices[0].Attributes[AttrUUID].StringValue
 	if au == bu {
 		t.Errorf("device UUIDs collide across nodes: %q", au)
 	}
