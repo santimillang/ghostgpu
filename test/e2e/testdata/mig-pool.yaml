@@ -1,0 +1,28 @@
+# A MIG-partitioned pool on hardware ghostgpu has a built-in profile table for.
+#
+# migProfiles is deliberately omitted so the built-in H100 table is exercised.
+# Hand-writing the profiles here would test the fixture rather than the tables
+# real users will rely on.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: h100-mig
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: mig-pool
+spec:
+  modelRef: h100-mig
+  nodeSelector:
+    type: mig
+  gpusPerNode: 16
+  sharingMode: mig
+  topology:
+    nvlinkDomainSize: 8
+    numaAware: true
