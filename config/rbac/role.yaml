@@ -5,6 +5,32 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ghostgpu.dev
+  resources:
+  - gpumodels
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ghostgpu.dev
   resources:
   - gpupools
@@ -30,3 +56,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - resource.k8s.io
+  resources:
+  - resourceslices
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

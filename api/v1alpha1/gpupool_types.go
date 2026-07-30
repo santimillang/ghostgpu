@@ -28,14 +28,30 @@ type AdvertiseSpec struct {
 	// separate pod-to-GPU binding store is needed.
 	// +kubebuilder:default=true
 	// +optional
-	DRA bool `json:"dra,omitempty"`
+	DRA *bool `json:"dra,omitempty"`
 
 	// extendedResource patches node status with nvidia.com/gpu for consumers
 	// that predate DRA. Compatibility only: a scalar resource cannot express
 	// which GPU was assigned to which pod.
 	// +kubebuilder:default=true
 	// +optional
-	ExtendedResource bool `json:"extendedResource,omitempty"`
+	ExtendedResource *bool `json:"extendedResource,omitempty"`
+}
+
+// These fields are pointers because they default to true. A plain bool with
+// omitempty serializes an explicit false as absent, which the API server then
+// defaults straight back to true — making the field impossible to turn off
+// from any Go client. A nil pointer means "unset", which the accessors below
+// resolve to the same default the CRD schema declares.
+
+// DRAEnabled reports whether DRA ResourceSlices should be published.
+func (a AdvertiseSpec) DRAEnabled() bool {
+	return a.DRA == nil || *a.DRA
+}
+
+// ExtendedResourceEnabled reports whether node capacity should be patched.
+func (a AdvertiseSpec) ExtendedResourceEnabled() bool {
+	return a.ExtendedResource == nil || *a.ExtendedResource
 }
 
 // TopologySpec describes simulated interconnect structure.
@@ -74,6 +90,13 @@ type GPUPoolSpec struct {
 	// +required
 	GPUsPerNode int32 `json:"gpusPerNode"`
 
+	// advertise selects which resource models this pool publishes.
+	//
+	// Defaulted to an empty object so that a manifest omitting the key still
+	// receives the nested field defaults. Without it, the API server has no
+	// object to default into and both paths silently resolve to false, leaving
+	// the pool advertising nothing at all.
+	// +kubebuilder:default={}
 	// +optional
 	Advertise AdvertiseSpec `json:"advertise,omitempty"`
 
