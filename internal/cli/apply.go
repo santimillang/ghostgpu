@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -31,9 +32,16 @@ import (
 )
 
 // Scheme returns a scheme with the ghostgpu API types registered.
+//
+// resource.k8s.io/v1 is registered explicitly: DRA is GA but is not part of the
+// client-go scheme, and `ghostgpu status` reads ResourceSlices and
+// ResourceClaims to work out what is published and who holds it.
 func Scheme() (*runtime.Scheme, error) {
 	s := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(s); err != nil {
+		return nil, err
+	}
+	if err := resourcev1.AddToScheme(s); err != nil {
 		return nil, err
 	}
 	if err := v1alpha1.AddToScheme(s); err != nil {
