@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/santimillang/ghostgpu/api/v1alpha1"
+	"github.com/santimillang/ghostgpu/internal/mig"
 	"github.com/santimillang/ghostgpu/internal/safety"
 )
 
@@ -59,6 +60,10 @@ const (
 
 	computeCapability = "9.0"
 	profile1g10gb     = "1g.10gb"
+
+	// A product ghostgpu has a built-in MIG profile table for, unlike
+	// productH100 above, whose name predates the built-in tables.
+	productH100MIG = "NVIDIA-H100-80GB-HBM3"
 )
 
 func testScheme() *runtime.Scheme {
@@ -333,7 +338,7 @@ func TestReconcileRejectsMIGOnUnpartitionableModel(t *testing.T) {
 // reconciling. Until slice construction lands it still publishes whole GPUs.
 func TestReconcileAcceptsMIGOnKnownModel(t *testing.T) {
 	model, pool := fixtures()
-	model.Spec.ProductName = "NVIDIA-H100-80GB-HBM3"
+	model.Spec.ProductName = productH100MIG
 	pool.Spec.SharingMode = v1alpha1.SharingModeMIG
 	r := newReconciler(model, pool, simNode(nodeA))
 
@@ -346,6 +351,203 @@ func TestReconcileAcceptsMIGOnKnownModel(t *testing.T) {
 	if ready.Status != metav1.ConditionTrue {
 		t.Errorf("Ready = %s, want True (reason %q, message %q)",
 			ready.Status, ready.Reason, ready.Message)
+	}
+}
+
+// migFixtures returns a pool partitioned into MIG instances on hardware
+// ghostgpu has a built-in profile table for.
+func migFixtures() (*v1alpha1.GPUModel, *v1alpha1.GPUPool) {
+	model, pool := fixtures()
+	model.Spec.ProductName = productH100MIG
+	pool.Spec.SharingMode = v1alpha1.SharingModeMIG
+	return model, pool
+}
+
+// h100ProfileCount is how many profiles the built-in H100 table carries. Read
+// rather than hardcoded, so adding a profile does not silently break the
+// arithmetic these tests assert.
+func h100ProfileCount(t *testing.T) int32 {
+	t.Helper()
+	table, ok := mig.ProfilesFor(productH100MIG)
+	if !ok {
+		t.Fatal("no built-in H100 table")
+	}
+	return int32(len(table.Profiles))
+}
+
+func listSlices(t *testing.T, r *GPUPoolReconciler) []resourcev1.ResourceSlice {
+	t.Helper()
+	var slices resourcev1.ResourceSliceList
+	if err := r.List(t.Context(), &slices); err != nil {
+		t.Fatalf("list slices: %v", err)
+	}
+	return slices.Items
+}
+
+func TestReconcilePublishesMIGSlices(t *testing.T) {
+	model, pool := migFixtures()
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+
+	slices := listSlices(t, r)
+	// 8 GPUs x 6 profiles = 48 devices: one counter slice, one device slice.
+	if len(slices) != 2 {
+		t.Fatalf("got %d slices, want 2 (1 counter + 1 device)", len(slices))
+	}
+
+	var counters, devices int
+	for i := range slices {
+		s := &slices[i]
+		counters += len(s.Spec.SharedCounters)
+		devices += len(s.Spec.Devices)
+
+		if s.Labels[PoolLabel] != fakePoolName {
+			t.Errorf("slice %s missing the pool label; pruning would never find it", s.Name)
+		}
+		if owner := metav1.GetControllerOf(s); owner == nil || owner.Name != fakePoolName {
+			t.Errorf("slice %s has no controller owner reference", s.Name)
+		}
+	}
+
+	if counters != 8 {
+		t.Errorf("got %d counter sets, want one per GPU (8)", counters)
+	}
+	if want := 8 * int(h100ProfileCount(t)); devices != want {
+		t.Errorf("got %d devices, want %d", devices, want)
+	}
+
+	// The whole-GPU slice must not also exist, or each card would be
+	// allocatable both whole and in pieces at the same time.
+	for i := range slices {
+		if slices[i].Name == sliceNodeA {
+			t.Error("the whole-GPU slice was published alongside MIG instances")
+		}
+	}
+}
+
+func TestReconcileReportsMIGStatus(t *testing.T) {
+	model, pool := migFixtures()
+	r := newReconciler(model, pool, simNode(nodeA), simNode(nodeB))
+
+	reconcileOnce(t, r)
+
+	got := getPool(t, r)
+	profiles := h100ProfileCount(t)
+
+	if got.Status.NodesMatched != 2 {
+		t.Errorf("NodesMatched = %d, want 2", got.Status.NodesMatched)
+	}
+	if want := 2 * 8 * profiles; got.Status.DevicesPublished != want {
+		t.Errorf("DevicesPublished = %d, want %d (2 nodes x 8 GPUs x %d profiles)",
+			got.Status.DevicesPublished, want, profiles)
+	}
+	if got.Status.MIGProfilesPublished != profiles {
+		t.Errorf("MIGProfilesPublished = %d, want %d", got.Status.MIGProfilesPublished, profiles)
+	}
+}
+
+// Switching a live pool between sharing modes is the case multi-slice pools
+// make easy to get wrong: the old objects are numerous and none of them share
+// a name with the new ones, so anything left behind keeps advertising devices
+// that no longer exist.
+func TestReconcilePrunesAcrossSharingModeSwitch(t *testing.T) {
+	t.Run("mig to none", func(t *testing.T) {
+		model, pool := migFixtures()
+		r := newReconciler(model, pool, simNode(nodeA))
+		reconcileOnce(t, r)
+
+		if len(listSlices(t, r)) != 2 {
+			t.Fatalf("setup: expected 2 MIG slices, got %d", len(listSlices(t, r)))
+		}
+
+		live := getPool(t, r)
+		live.Spec.SharingMode = v1alpha1.SharingModeNone
+		if err := r.Update(t.Context(), live); err != nil {
+			t.Fatalf("update pool: %v", err)
+		}
+		reconcileOnce(t, r)
+
+		slices := listSlices(t, r)
+		if len(slices) != 1 {
+			t.Fatalf("got %d slices after switching to none, want 1 whole-GPU slice", len(slices))
+		}
+		if slices[0].Name != sliceNodeA {
+			t.Errorf("surviving slice is %q, want %q", slices[0].Name, sliceNodeA)
+		}
+		if len(slices[0].Spec.SharedCounters) != 0 {
+			t.Error("a counter slice survived the switch away from MIG")
+		}
+		if got := getPool(t, r).Status.MIGProfilesPublished; got != 0 {
+			t.Errorf("MIGProfilesPublished = %d, want 0 after leaving MIG", got)
+		}
+	})
+
+	t.Run("none to mig", func(t *testing.T) {
+		model, pool := fixtures()
+		model.Spec.ProductName = productH100MIG
+		r := newReconciler(model, pool, simNode(nodeA))
+		reconcileOnce(t, r)
+
+		if len(listSlices(t, r)) != 1 {
+			t.Fatalf("setup: expected 1 whole-GPU slice, got %d", len(listSlices(t, r)))
+		}
+
+		live := getPool(t, r)
+		live.Spec.SharingMode = v1alpha1.SharingModeMIG
+		if err := r.Update(t.Context(), live); err != nil {
+			t.Fatalf("update pool: %v", err)
+		}
+		reconcileOnce(t, r)
+
+		for _, s := range listSlices(t, r) {
+			if s.Name == sliceNodeA {
+				t.Error("the whole-GPU slice survived the switch to MIG")
+			}
+		}
+	})
+}
+
+// The safety invariant holds on the MIG path too. It is enforced before any
+// slice is built, but a separate assertion keeps it from regressing when only
+// the MIG branch changes.
+func TestReconcileMIGRefusesRealNodes(t *testing.T) {
+	model, pool := migFixtures()
+	r := newReconciler(model, pool, realNode("real-node"))
+
+	reconcileOnce(t, r)
+
+	if slices := listSlices(t, r); len(slices) != 0 {
+		t.Errorf("SAFETY VIOLATION: %d MIG slices published for an unmanaged node", len(slices))
+	}
+	node := getNode(t, r, "real-node")
+	if _, touched := node.Status.Capacity[gpuResource]; touched {
+		t.Error("SAFETY VIOLATION: unmanaged node capacity was modified")
+	}
+}
+
+func TestReconcileMIGIsIdempotent(t *testing.T) {
+	model, pool := migFixtures()
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+	first := listSlices(t, r)
+
+	reconcileOnce(t, r)
+	second := listSlices(t, r)
+
+	if len(first) != len(second) {
+		t.Fatalf("slice count changed on a no-op reconcile: %d -> %d", len(first), len(second))
+	}
+	versions := map[string]string{}
+	for i := range first {
+		versions[first[i].Name] = first[i].ResourceVersion
+	}
+	for i := range second {
+		if was, ok := versions[second[i].Name]; ok && was != second[i].ResourceVersion {
+			t.Errorf("slice %s rewritten on a no-op reconcile: %s -> %s",
+				second[i].Name, was, second[i].ResourceVersion)
+		}
 	}
 }
 
