@@ -53,7 +53,7 @@ var _ = Describe("GPUPool", func() {
 				Vendor:            "nvidia",
 				ProductName:       "NVIDIA-H100-SXM",
 				Memory:            resource.MustParse("80Gi"),
-				ComputeCapability: "9.0",
+				ComputeCapability: computeCapability,
 			},
 		}
 		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, model))).To(Succeed())
@@ -164,6 +164,88 @@ var _ = Describe("GPUPool", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, tooMany)).NotTo(Succeed())
+	})
+
+	It("round-trips MIG profiles and defaults the budget slice count", func() {
+		withMIG := &ghostgpuv1alpha1.GPUModel{
+			ObjectMeta: metav1.ObjectMeta{Name: "mig-model"},
+			Spec: ghostgpuv1alpha1.GPUModelSpec{
+				ProductName:       "NVIDIA-H100-80GB-HBM3",
+				Memory:            resource.MustParse("80Gi"),
+				ComputeCapability: computeCapability,
+				MIGProfiles: []ghostgpuv1alpha1.MIGProfileSpec{
+					{Name: profile1g10gb, Memory: resource.MustParse("10Gi"), Slices: 1},
+					{Name: "7g.80gb", Memory: resource.MustParse("80Gi"), Slices: 7},
+				},
+				// slices omitted: the CRD default applies because the parent
+				// object is present. See the advertise regression above for
+				// what happens when the parent is absent instead.
+				MIGBudget: &ghostgpuv1alpha1.MIGBudgetSpec{},
+			},
+		}
+		Expect(k8sClient.Create(ctx, withMIG)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, withMIG))).To(Succeed())
+		})
+
+		fetched := &ghostgpuv1alpha1.GPUModel{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "mig-model"}, fetched)).To(Succeed())
+
+		Expect(fetched.Spec.MIGProfiles).To(HaveLen(2))
+		Expect(fetched.Spec.MIGProfiles[0].Name).To(Equal(profile1g10gb))
+		Expect(fetched.Spec.MIGBudget).NotTo(BeNil())
+		Expect(fetched.Spec.MIGBudget.Slices).To(Equal(int32(7)), "budget slices should default to 7")
+	})
+
+	// Profile names become part of an extended resource name under the mixed
+	// strategy, so a malformed one would be rejected when the node is patched,
+	// failing the entire pool rather than just this model.
+	It("rejects a malformed MIG profile name", func() {
+		bad := &ghostgpuv1alpha1.GPUModel{
+			ObjectMeta: metav1.ObjectMeta{Name: "bad-profile"},
+			Spec: ghostgpuv1alpha1.GPUModelSpec{
+				ProductName:       "X",
+				Memory:            resource.MustParse("80Gi"),
+				ComputeCapability: computeCapability,
+				MIGProfiles: []ghostgpuv1alpha1.MIGProfileSpec{
+					{Name: "not a profile", Memory: resource.MustParse("10Gi"), Slices: 1},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, bad)).NotTo(Succeed())
+	})
+
+	// listMapKey=name makes the API server enforce uniqueness, so two profiles
+	// of the same name cannot reach the operator at all.
+	It("rejects duplicate MIG profile names", func() {
+		dup := &ghostgpuv1alpha1.GPUModel{
+			ObjectMeta: metav1.ObjectMeta{Name: "dup-profile"},
+			Spec: ghostgpuv1alpha1.GPUModelSpec{
+				ProductName:       "X",
+				Memory:            resource.MustParse("80Gi"),
+				ComputeCapability: computeCapability,
+				MIGProfiles: []ghostgpuv1alpha1.MIGProfileSpec{
+					{Name: profile1g10gb, Memory: resource.MustParse("10Gi"), Slices: 1},
+					{Name: profile1g10gb, Memory: resource.MustParse("20Gi"), Slices: 1},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, dup)).NotTo(Succeed())
+	})
+
+	It("rejects a MIG profile consuming more slices than any GPU has", func() {
+		bad := &ghostgpuv1alpha1.GPUModel{
+			ObjectMeta: metav1.ObjectMeta{Name: "too-many-slices"},
+			Spec: ghostgpuv1alpha1.GPUModelSpec{
+				ProductName:       "X",
+				Memory:            resource.MustParse("80Gi"),
+				ComputeCapability: computeCapability,
+				MIGProfiles: []ghostgpuv1alpha1.MIGProfileSpec{
+					{Name: "9g.80gb", Memory: resource.MustParse("80Gi"), Slices: 9},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, bad)).NotTo(Succeed())
 	})
 
 	It("rejects a model with a malformed compute capability", func() {

@@ -60,6 +60,74 @@ spec:
                 description: memory available per GPU, e.g. "80Gi".
                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                 x-kubernetes-int-or-string: true
+              migBudget:
+                description: |-
+                  migBudget is what one physical GPU can hand out in total.
+
+                  Defaults to this model's own memory and the slice count of the built-in
+                  table. Deriving memory from the model rather than the table matters for
+                  hardware that shares a family but not a capacity — an H100 NVL carries
+                  94GB, and inheriting the 80GB table budget would simulate a card the
+                  user did not ask for.
+                properties:
+                  memory:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: memory available to MIG instances. Defaults to the
+                      model's memory.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  slices:
+                    default: 7
+                    description: |-
+                      slices is the total compute slices on the GPU. NVIDIA MIG hardware
+                      exposes seven.
+                    format: int32
+                    maximum: 8
+                    minimum: 1
+                    type: integer
+                type: object
+              migProfiles:
+                description: |-
+                  migProfiles are the MIG instance shapes this GPU can be partitioned into.
+
+                  Leave empty to use ghostgpu's built-in table for the productName, which
+                  is what NVIDIA publishes for that hardware. Set it only for GPUs
+                  ghostgpu does not recognise, or to restrict a known GPU to a subset.
+                items:
+                  description: MIGProfileSpec is one MIG instance shape and what it
+                    draws from its GPU.
+                  properties:
+                    memory:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: memory this instance reserves from the GPU's framebuffer.
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    name:
+                      description: |-
+                        name as NVIDIA reports it, e.g. "1g.10gb". This becomes part of the DRA
+                        device name and of an extended resource name under the mixed strategy,
+                        so it must be a valid resource name segment.
+                      pattern: ^[0-9]+g\.[0-9]+gb$
+                      type: string
+                    slices:
+                      description: slices is the number of compute slices consumed.
+                      format: int32
+                      maximum: 8
+                      minimum: 1
+                      type: integer
+                  required:
+                  - memory
+                  - name
+                  - slices
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               productName:
                 description: |-
                   productName as reported by GPU Feature Discovery, e.g. "NVIDIA-H100-SXM".

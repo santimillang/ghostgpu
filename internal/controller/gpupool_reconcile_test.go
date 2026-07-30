@@ -56,6 +56,9 @@ const (
 
 	sliceNodeA = "h100-pool-node-a"
 	sliceNodeB = "h100-pool-node-b"
+
+	computeCapability = "9.0"
+	profile1g10gb     = "1g.10gb"
 )
 
 func testScheme() *runtime.Scheme {
@@ -116,7 +119,7 @@ func fixtures() (*v1alpha1.GPUModel, *v1alpha1.GPUPool) {
 			Vendor:            "nvidia",
 			ProductName:       productH100,
 			Memory:            resource.MustParse("80Gi"),
-			ComputeCapability: "9.0",
+			ComputeCapability: computeCapability,
 		},
 	}
 	pool := &v1alpha1.GPUPool{
