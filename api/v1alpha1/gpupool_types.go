@@ -168,10 +168,21 @@ type GPUPoolStatus struct {
 	// +optional
 	NodesMatched int32 `json:"nodesMatched,omitempty"`
 
-	// devicesPublished is the total number of simulated GPUs advertised
-	// across all matched nodes.
+	// devicesPublished is the total number of DRA devices advertised across all
+	// matched nodes. Under sharingMode "none" that is one per simulated GPU;
+	// under "mig" it is one per MIG instance, so it counts instances rather
+	// than cards.
 	// +optional
 	DevicesPublished int32 `json:"devicesPublished,omitempty"`
+
+	// migProfilesPublished is how many MIG profiles each simulated GPU is
+	// partitioned into. Zero when the pool does not use MIG.
+	//
+	// Reported separately because devicesPublished alone cannot distinguish
+	// "many cards" from "few cards, finely divided", and those behave very
+	// differently under a scheduler.
+	// +optional
+	MIGProfilesPublished int32 `json:"migProfilesPublished,omitempty"`
 }
 
 // +kubebuilder:object:root=true
