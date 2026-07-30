@@ -350,6 +350,145 @@ func TestRenderYAMLIncludesMIGFields(t *testing.T) {
 	}
 }
 
+func TestParsePartition(t *testing.T) {
+	t.Run("profile=count pairs", func(t *testing.T) {
+		got, err := ParsePartition("3g.40gb=1,1g.10gb=4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("got %d entries, want 2: %v", len(got), got)
+		}
+		if got[0].Profile != profileMid || got[0].Count != 1 {
+			t.Errorf("entry 0 = %+v, want {3g.40gb 1}", got[0])
+		}
+		if got[1].Profile != profileSmall || got[1].Count != 4 {
+			t.Errorf("entry 1 = %+v, want {1g.10gb 4}", got[1])
+		}
+	})
+
+	// A bare profile means one of it, which is the common case and reads
+	// better than forcing "=1" everywhere.
+	t.Run("bare profile means one", func(t *testing.T) {
+		got, err := ParsePartition("7g.80gb")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Count != 1 {
+			t.Errorf("got %+v, want a single entry with count 1", got)
+		}
+	})
+
+	t.Run("empty means dynamic MIG", func(t *testing.T) {
+		got, err := ParsePartition("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %v, want no entries", got)
+		}
+	})
+
+	t.Run("rejects malformed input", func(t *testing.T) {
+		for _, s := range []string{
+			"3g.40gb=",    // no count
+			"3g.40gb=x",   // count is not a number
+			"3g.40gb=0",   // an instance that does not exist is not a partition
+			"3g.40gb=-1",  // negative
+			"=4",          // no profile
+			"3g.40gb=1,,", // stray separator
+			"3g.40gb=1=2", // two counts
+		} {
+			if _, err := ParsePartition(s); err == nil {
+				t.Errorf("ParsePartition(%q) succeeded, want an error", s)
+			}
+		}
+	})
+
+	// Repeating a profile is ambiguous rather than additive: the API stores it
+	// as a list keyed by profile, so two entries could not both survive.
+	t.Run("rejects a repeated profile", func(t *testing.T) {
+		if _, err := ParsePartition("1g.10gb=2,1g.10gb=3"); err == nil {
+			t.Error("expected an error for a repeated profile")
+		}
+	})
+}
+
+func TestBuildManifestsCarriesPartition(t *testing.T) {
+	opts := migOptions()
+	opts.MIGPartition = "3g.40gb=1,1g.10gb=4"
+
+	objs, err := BuildManifests(opts)
+	if err != nil {
+		t.Fatalf("BuildManifests: %v", err)
+	}
+	pool := objs[1].(*v1alpha1.GPUPool)
+
+	if len(pool.Spec.MIGPartition) != 2 {
+		t.Fatalf("got %d partition entries, want 2", len(pool.Spec.MIGPartition))
+	}
+	if pool.Spec.MIGPartition[1].Count != 4 {
+		t.Errorf("1g.10gb count = %d, want 4", pool.Spec.MIGPartition[1].Count)
+	}
+}
+
+// The CLI validates against the same budget the operator does, so a layout
+// that cannot fit is rejected before it reaches a cluster — and --dry-run,
+// which never reaches one at all, still catches it.
+func TestBuildManifestsRejectsUnfittablePartition(t *testing.T) {
+	opts := migOptions()
+	opts.MIGPartition = "7g.80gb=2"
+
+	_, err := BuildManifests(opts)
+	if err == nil {
+		t.Fatal("expected an error for a partition that cannot fit one GPU")
+	}
+	if !strings.Contains(err.Error(), "slices") {
+		t.Errorf("error should explain which budget was exceeded: %v", err)
+	}
+}
+
+// A partition is validated against the profiles the pool actually exposes, not
+// against everything the hardware supports. Restricting the profiles and then
+// declaring one that was excluded has to fail, or the pool would advertise
+// instances it never publishes.
+func TestBuildManifestsPartitionRespectsProfileSubset(t *testing.T) {
+	opts := migOptions()
+	opts.MIGProfiles = profileSmall
+	opts.MIGPartition = profileMid + "=1"
+
+	_, err := BuildManifests(opts)
+	if err == nil {
+		t.Fatal("expected an error: the partition names a profile the pool does not expose")
+	}
+	if !strings.Contains(err.Error(), profileMid) {
+		t.Errorf("error should name the excluded profile: %v", err)
+	}
+}
+
+func TestBuildManifestsPartitionWithinProfileSubset(t *testing.T) {
+	opts := migOptions()
+	opts.MIGProfiles = profileSmall + "," + profileMid
+	opts.MIGPartition = profileMid + "=1," + profileSmall + "=4"
+
+	objs, err := BuildManifests(opts)
+	if err != nil {
+		t.Fatalf("BuildManifests: %v", err)
+	}
+	if got := len(objs[1].(*v1alpha1.GPUPool).Spec.MIGPartition); got != 2 {
+		t.Errorf("got %d partition entries, want 2", got)
+	}
+}
+
+func TestBuildManifestsPartitionRequiresMIG(t *testing.T) {
+	opts := validOptions()
+	opts.MIGPartition = "1g.10gb=1"
+
+	if _, err := BuildManifests(opts); err == nil {
+		t.Error("expected an error for a partition without sharing-mode mig")
+	}
+}
+
 func TestParseSelector(t *testing.T) {
 	t.Run("multiple pairs", func(t *testing.T) {
 		got, err := ParseSelector("type=kwok,zone=us-east-1a")
