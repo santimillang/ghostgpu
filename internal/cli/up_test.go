@@ -29,6 +29,12 @@ const (
 	testModelName = "h100"
 	testPoolName  = "h100-pool"
 	nodeTypeKey   = "type"
+
+	profileSmall = "1g.10gb"
+	profileMid   = "3g.40gb"
+	// A real A100 profile, which makes it a plausible typo rather than
+	// nonsense — exactly the mistake the error message has to handle well.
+	profileWrongHardware = "1g.5gb"
 )
 
 func validOptions() UpOptions {
@@ -173,6 +179,174 @@ func TestBuildManifestsOmitsNVLinkWhenZero(t *testing.T) {
 	}
 	if got := objs[1].(*v1alpha1.GPUPool).Spec.Topology.NVLinkDomainSize; got != 0 {
 		t.Errorf("nvlinkDomainSize = %d, want 0", got)
+	}
+}
+
+func migOptions() UpOptions {
+	opts := validOptions()
+	opts.Product = "NVIDIA-H100-80GB-HBM3"
+	opts.SharingMode = "mig"
+	return opts
+}
+
+func TestBuildManifestsMIGUsesBuiltInProfiles(t *testing.T) {
+	objs, err := BuildManifests(migOptions())
+	if err != nil {
+		t.Fatalf("BuildManifests: %v", err)
+	}
+
+	model := objs[0].(*v1alpha1.GPUModel)
+	pool := objs[1].(*v1alpha1.GPUPool)
+
+	if !pool.Spec.MIGEnabled() {
+		t.Error("sharingMode was not set to mig")
+	}
+	// Left empty on purpose: the operator resolves the built-in table for the
+	// product, so the emitted manifest stays short and stays correct if the
+	// table gains a profile.
+	if len(model.Spec.MIGProfiles) != 0 {
+		t.Errorf("migProfiles = %v, want empty so the built-in table is used",
+			model.Spec.MIGProfiles)
+	}
+}
+
+// Naming profiles restricts a known GPU to a subset. The full shape has to be
+// written into the manifest, because a bare name carries no memory or slice
+// count and the operator would otherwise have to guess which table it came from.
+func TestBuildManifestsMIGProfileSubset(t *testing.T) {
+	opts := migOptions()
+	opts.MIGProfiles = "1g.10gb,3g.40gb"
+
+	objs, err := BuildManifests(opts)
+	if err != nil {
+		t.Fatalf("BuildManifests: %v", err)
+	}
+	model := objs[0].(*v1alpha1.GPUModel)
+
+	if len(model.Spec.MIGProfiles) != 2 {
+		t.Fatalf("got %d profiles, want 2: %v", len(model.Spec.MIGProfiles), model.Spec.MIGProfiles)
+	}
+	got := []string{model.Spec.MIGProfiles[0].Name, model.Spec.MIGProfiles[1].Name}
+	if got[0] != profileSmall || got[1] != profileMid {
+		t.Errorf("profiles = %v, want [1g.10gb 3g.40gb]", got)
+	}
+
+	// The consumption must survive, or the published devices would draw down
+	// nothing and every profile could be allocated at once.
+	if model.Spec.MIGProfiles[0].Slices != 1 {
+		t.Errorf("1g.10gb consumes %d slices, want 1", model.Spec.MIGProfiles[0].Slices)
+	}
+	if model.Spec.MIGProfiles[1].Slices != 3 {
+		t.Errorf("3g.40gb consumes %d slices, want 3", model.Spec.MIGProfiles[1].Slices)
+	}
+	if model.Spec.MIGProfiles[0].Memory.Cmp(resource.MustParse("10Gi")) != 0 {
+		t.Errorf("1g.10gb memory = %v, want 10Gi", model.Spec.MIGProfiles[0].Memory.String())
+	}
+}
+
+// Selection follows the table's order rather than the order typed, so the same
+// set always produces the same manifest regardless of how it was written.
+func TestBuildManifestsMIGProfileOrderIsStable(t *testing.T) {
+	first := migOptions()
+	first.MIGProfiles = "7g.80gb,1g.10gb"
+	second := migOptions()
+	second.MIGProfiles = "1g.10gb,7g.80gb"
+
+	a, err := BuildManifests(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := BuildManifests(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	profilesA := a[0].(*v1alpha1.GPUModel).Spec.MIGProfiles
+	profilesB := b[0].(*v1alpha1.GPUModel).Spec.MIGProfiles
+	for i := range profilesA {
+		if profilesA[i].Name != profilesB[i].Name {
+			t.Errorf("profile %d differs by input order: %q vs %q",
+				i, profilesA[i].Name, profilesB[i].Name)
+		}
+	}
+}
+
+func TestBuildManifestsMIGRejectsBadInput(t *testing.T) {
+	cases := map[string]struct {
+		mutate  func(*UpOptions)
+		wantErr string
+	}{
+		"unknown sharing mode": {
+			mutate:  func(o *UpOptions) { o.SharingMode = "timeSlicing" },
+			wantErr: "sharing-mode",
+		},
+		"unknown product with no table": {
+			mutate:  func(o *UpOptions) { o.Product = "NVIDIA-GTX-1080" },
+			wantErr: "migProfiles",
+		},
+		"profile not on this hardware": {
+			mutate:  func(o *UpOptions) { o.MIGProfiles = profileWrongHardware },
+			wantErr: profileWrongHardware,
+		},
+		"profiles without mig mode": {
+			mutate: func(o *UpOptions) {
+				o.SharingMode = "none"
+				o.MIGProfiles = profileSmall
+			},
+			wantErr: "sharing-mode",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			opts := migOptions()
+			tc.mutate(&opts)
+
+			_, err := BuildManifests(opts)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error %q should mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// An unknown profile name is the most likely typo, so the error has to say what
+// is available rather than only what is wrong.
+func TestBuildManifestsMIGErrorListsAvailableProfiles(t *testing.T) {
+	opts := migOptions()
+	opts.MIGProfiles = profileWrongHardware
+
+	_, err := BuildManifests(opts)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, available := range []string{profileSmall, "7g.80gb"} {
+		if !strings.Contains(err.Error(), available) {
+			t.Errorf("error should list available profile %q: %v", available, err)
+		}
+	}
+}
+
+func TestRenderYAMLIncludesMIGFields(t *testing.T) {
+	opts := migOptions()
+	opts.MIGProfiles = profileSmall
+
+	objs, err := BuildManifests(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := RenderYAML(objs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"sharingMode: mig", "migProfiles:", "name: 1g.10gb", "slices: 1"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered YAML missing %q:\n%s", want, out)
+		}
 	}
 }
 
