@@ -13,6 +13,7 @@ While ghostgpu is pre-1.0, breaking changes may occur in minor releases. The `gh
 - `GPUModel` and `GPUPool` cluster-scoped CRDs describing simulated GPU hardware and how it is advertised (DRA `ResourceSlice`s and/or legacy `nvidia.com/gpu` extended resources).
 - `GPUPool` controller. For every kwok-managed node matching a pool's selector it publishes a DRA `ResourceSlice`, patches `nvidia.com/gpu` capacity and allocatable, applies GPU Feature Discovery labels, and reports matched nodes and published devices on `status`. Slices belonging to departed nodes are pruned.
 - GPU Feature Discovery-compatible node labels (`nvidia.com/gpu.present`, `.count`, `.product`, `.memory`, `.compute.major`, `.compute.minor`), matching NVIDIA GFD key names and value formats so existing tooling selects on simulated nodes unchanged.
+- End-to-end suite asserting real kube-scheduler behaviour against simulated hardware: extended-resource placement and refusal to overcommit, DRA allocation honouring an NVLink topology selector, GFD labels, published `ResourceSlice`s, pool status, and the safety invariant. The e2e cluster is now kwok on kind with `DynamicResourceAllocation` enabled, because a plain kind cluster can host the manager but cannot exercise anything it does.
 - Project scaffolding: kubebuilder v4.15.0, Apache-2.0 license, CI for build, lint, unit/envtest, and e2e.
 - Community health documentation: contributing guide, code of conduct, security policy with threat model, and governance.
 
