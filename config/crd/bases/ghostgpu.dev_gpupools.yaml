@@ -99,6 +99,22 @@ spec:
                   nodeSelector chooses which nodes receive simulated GPUs. Only
                   kwok-managed nodes are ever modified, regardless of what this matches.
                 type: object
+              sharingMode:
+                default: none
+                description: |-
+                  sharingMode is how each physical GPU is divided.
+
+                  "none" advertises whole GPUs. "mig" partitions each GPU into MIG
+                  instances drawn from a shared compute-slice and memory budget, so
+                  overlapping profiles on one GPU are mutually exclusive.
+
+                  Unlike advertise, this is safe as a plain string: its zero value and its
+                  default are the same, so an omitted key and an explicit "none" are
+                  indistinguishable by design rather than by accident.
+                enum:
+                - none
+                - mig
+                type: string
               topology:
                 description: |-
                   TopologySpec describes simulated interconnect structure.

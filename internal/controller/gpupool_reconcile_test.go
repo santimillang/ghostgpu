@@ -197,8 +197,8 @@ func TestReconcileSetsOwnerReference(t *testing.T) {
 	if owner == nil {
 		t.Fatal("no controller owner reference; slice would leak when the pool is deleted")
 	}
-	if owner.Kind != "GPUPool" || owner.Name != fakePoolName {
-		t.Errorf("owner = %s/%s, want GPUPool/%s", owner.Kind, owner.Name, fakePoolName)
+	if owner.Kind != kindGPUPool || owner.Name != fakePoolName {
+		t.Errorf("owner = %s/%s, want %s/%s", owner.Kind, owner.Name, kindGPUPool, fakePoolName)
 	}
 }
 
@@ -297,6 +297,55 @@ func TestReconcileReportsMissingModel(t *testing.T) {
 	}
 	if ready.Reason != "ModelNotFound" {
 		t.Errorf("Reason = %q, want ModelNotFound", ready.Reason)
+	}
+}
+
+// A pool asking for MIG on a GPU that cannot be partitioned spans two objects,
+// so the API server cannot reject it. It must surface on status rather than
+// producing a pool that silently simulates nothing.
+func TestReconcileRejectsMIGOnUnpartitionableModel(t *testing.T) {
+	model, pool := fixtures()
+	model.Spec.ProductName = "NVIDIA-GTX-1080" // no built-in MIG table
+	pool.Spec.SharingMode = v1alpha1.SharingModeMIG
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+
+	ready := meta.FindStatusCondition(getPool(t, r).Status.Conditions, ConditionReady)
+	if ready == nil {
+		t.Fatal("Ready condition not set")
+	}
+	if ready.Status != metav1.ConditionFalse {
+		t.Errorf("Ready = %s, want False", ready.Status)
+	}
+	if ready.Reason != "MIGProfilesInvalid" {
+		t.Errorf("Reason = %q, want MIGProfilesInvalid", ready.Reason)
+	}
+
+	// Nothing may be published for a pool that failed validation.
+	var slice resourcev1.ResourceSlice
+	if err := r.Get(t.Context(), types.NamespacedName{Name: sliceNodeA}, &slice); err == nil {
+		t.Error("a ResourceSlice was published for an invalid MIG pool")
+	}
+}
+
+// A MIG pool on hardware ghostgpu knows must pass validation and keep
+// reconciling. Until slice construction lands it still publishes whole GPUs.
+func TestReconcileAcceptsMIGOnKnownModel(t *testing.T) {
+	model, pool := fixtures()
+	model.Spec.ProductName = "NVIDIA-H100-80GB-HBM3"
+	pool.Spec.SharingMode = v1alpha1.SharingModeMIG
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+
+	ready := meta.FindStatusCondition(getPool(t, r).Status.Conditions, ConditionReady)
+	if ready == nil {
+		t.Fatal("Ready condition not set")
+	}
+	if ready.Status != metav1.ConditionTrue {
+		t.Errorf("Ready = %s, want True (reason %q, message %q)",
+			ready.Status, ready.Reason, ready.Message)
 	}
 }
 
