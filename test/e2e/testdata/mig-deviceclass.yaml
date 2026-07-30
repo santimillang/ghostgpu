@@ -1,0 +1,11 @@
+# The DeviceClass MIG claims select through. The claims themselves are built in
+# Go, because they must target a specific physical GPU by UUID and that UUID is
+# only known once the operator has published the slice.
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-mig-e2e
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"
