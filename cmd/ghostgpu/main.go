@@ -82,6 +82,10 @@ func run(args []string, stdout, stderr io.Writer) error {
 	fs.BoolVar(&opts.NUMAAware, "numa", false, "emit a NUMA node attribute per simulated device")
 	fs.StringVar(&opts.NodeSelector, "node-selector", "type=kwok",
 		"labels selecting which nodes receive GPUs; empty matches every simulated node")
+	fs.StringVar(&opts.SharingMode, "sharing-mode", "none",
+		"how each GPU is divided: none, or mig to partition it into MIG instances")
+	fs.StringVar(&opts.MIGProfiles, "mig-profiles", "",
+		"restrict a MIG pool to these profiles, e.g. 1g.10gb,3g.40gb; empty uses every profile the GPU supports")
 	fs.BoolVar(&opts.DRA, "dra", true, "publish DRA ResourceSlices")
 	fs.BoolVar(&opts.ExtendedResource, "extended-resource", true, "advertise nvidia.com/gpu node capacity")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the manifests as YAML instead of applying them")

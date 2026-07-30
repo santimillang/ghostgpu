@@ -23,7 +23,9 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -33,6 +35,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/santimillang/ghostgpu/api/v1alpha1"
+	"github.com/santimillang/ghostgpu/internal/mig"
 )
 
 // MaxGPUsPerNode mirrors the GPUPool CRD maximum, which exists because DRA
@@ -54,6 +57,71 @@ type UpOptions struct {
 	NodeSelector     string
 	DRA              bool
 	ExtendedResource bool
+
+	// SharingMode is "none" or "mig". Empty means "none".
+	SharingMode string
+
+	// MIGProfiles optionally restricts a MIG pool to a subset of the profiles
+	// its hardware supports, as a comma-separated list of profile names.
+	MIGProfiles string
+}
+
+// migSelection resolves the profiles a MIG pool should expose.
+//
+// A profile name on its own carries no memory or slice count, so a named subset
+// has to be expanded from the built-in table for the product. That is also why
+// the CLI can only restrict profiles for hardware ghostgpu knows: inventing the
+// consumption for an unrecognised GPU would simulate something that does not
+// exist. Users with such hardware write migProfiles in YAML, which the error
+// says.
+//
+// The result follows the table's order rather than the order typed, so the same
+// set always produces the same manifest.
+func migSelection(opts UpOptions) ([]v1alpha1.MIGProfileSpec, error) {
+	table, known := mig.ProfilesFor(opts.Product)
+	if !known {
+		return nil, fmt.Errorf(
+			"no built-in MIG profiles for %q; declare spec.migProfiles in a GPUModel manifest instead",
+			opts.Product)
+	}
+
+	// Empty means "everything this hardware supports", and is left out of the
+	// manifest entirely so the operator resolves the same table. Writing the
+	// profiles out would freeze today's table into the user's YAML.
+	if strings.TrimSpace(opts.MIGProfiles) == "" {
+		return nil, nil
+	}
+
+	wanted := map[string]bool{}
+	for name := range strings.SplitSeq(opts.MIGProfiles, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			wanted[name] = true
+		}
+	}
+
+	selected := make([]v1alpha1.MIGProfileSpec, 0, len(wanted))
+	for _, p := range table.Profiles {
+		if wanted[p.Name] {
+			selected = append(selected, v1alpha1.MIGProfileSpec{
+				Name:   p.Name,
+				Memory: p.Memory,
+				Slices: p.Slices,
+			})
+			delete(wanted, p.Name)
+		}
+	}
+
+	if len(wanted) > 0 {
+		available := make([]string, 0, len(table.Profiles))
+		for _, p := range table.Profiles {
+			available = append(available, p.Name)
+		}
+		missing := slices.Sorted(maps.Keys(wanted))
+		return nil, fmt.Errorf("%s does not support MIG profile(s) %s; available: %s",
+			opts.Product, strings.Join(missing, ", "), strings.Join(available, ", "))
+	}
+
+	return selected, nil
 }
 
 // ParseSelector turns a "k=v,k2=v2" flag value into a label map.
@@ -106,6 +174,24 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 		return nil, fmt.Errorf("invalid memory %q: %w", opts.Memory, err)
 	}
 
+	sharingMode := v1alpha1.SharingMode(opts.SharingMode)
+	if opts.SharingMode == "" {
+		sharingMode = v1alpha1.SharingModeNone
+	}
+	if sharingMode != v1alpha1.SharingModeNone && sharingMode != v1alpha1.SharingModeMIG {
+		return nil, fmt.Errorf("invalid sharing-mode %q: want none or mig", opts.SharingMode)
+	}
+
+	var profiles []v1alpha1.MIGProfileSpec
+	switch {
+	case sharingMode == v1alpha1.SharingModeMIG:
+		if profiles, err = migSelection(opts); err != nil {
+			return nil, err
+		}
+	case opts.MIGProfiles != "":
+		return nil, fmt.Errorf("mig-profiles requires sharing-mode mig")
+	}
+
 	selector, err := ParseSelector(opts.NodeSelector)
 	if err != nil {
 		return nil, err
@@ -124,6 +210,7 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 			ProductName:       opts.Product,
 			Memory:            memory,
 			ComputeCapability: opts.Compute,
+			MIGProfiles:       profiles,
 		},
 	}
 
@@ -144,6 +231,7 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 				DRA:              ptr.To(opts.DRA),
 				ExtendedResource: ptr.To(opts.ExtendedResource),
 			},
+			SharingMode: sharingMode,
 			Topology: v1alpha1.TopologySpec{
 				NVLinkDomainSize: opts.NVLinkDomainSize,
 				NUMAAware:        opts.NUMAAware,
