@@ -33,6 +33,21 @@ import (
 // kwok skips because it drives pods to Running directly.
 const DriverName = "gpu.ghostgpu.dev"
 
+// DRA device attribute names ghostgpu publishes.
+//
+// Consumers write CEL selectors against these, so the names are an external
+// contract: renaming one silently breaks every selector in the wild that used
+// it. They are shared by the whole-GPU and MIG paths so both stay consistent.
+const (
+	AttrProductName   = "productName"
+	AttrVendor        = "vendor"
+	AttrUUID          = "uuid"
+	AttrNVLinkDomain  = "nvlinkDomain"
+	AttrNUMANode      = "numaNode"
+	AttrMIGProfile    = "migProfile"
+	AttrMIGInstanceID = "migInstanceID"
+)
+
 // MaxDevicesPerSlice is the DRA limit on devices in a single ResourceSlice.
 // It drops to 64 for devices that use taints or consume counters, which will
 // matter when MIG lands and expands each GPU into multiple profiles.
@@ -69,19 +84,19 @@ func BuildResourceSlice(pool *v1alpha1.GPUPool, model *v1alpha1.GPUModel, nodeNa
 
 	for i := range pool.Spec.GPUsPerNode {
 		attrs := map[resourcev1.QualifiedName]resourcev1.DeviceAttribute{
-			"productName": stringAttr(model.Spec.ProductName),
-			"vendor":      stringAttr(model.Spec.Vendor),
-			"uuid":        stringAttr(DeviceUUID(nodeName, i)),
+			AttrProductName: stringAttr(model.Spec.ProductName),
+			AttrVendor:      stringAttr(model.Spec.Vendor),
+			AttrUUID:        stringAttr(DeviceUUID(nodeName, i)),
 		}
 
 		// Topology attributes are omitted rather than zero-valued when
 		// disabled, so a selector for them matches nothing instead of
 		// matching everything at domain-0.
 		if domain := NVLinkDomain(i, pool.Spec.Topology.NVLinkDomainSize); domain != "" {
-			attrs["nvlinkDomain"] = stringAttr(domain)
+			attrs[AttrNVLinkDomain] = stringAttr(domain)
 		}
 		if pool.Spec.Topology.NUMAAware {
-			attrs["numaNode"] = intAttr(NUMANode(i, pool.Spec.Topology.NVLinkDomainSize))
+			attrs[AttrNUMANode] = intAttr(NUMANode(i, pool.Spec.Topology.NVLinkDomainSize))
 		}
 
 		devices = append(devices, resourcev1.Device{
