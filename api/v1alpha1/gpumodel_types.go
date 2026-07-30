@@ -48,6 +48,61 @@ type GPUModelSpec struct {
 	// +kubebuilder:validation:Pattern=`^[0-9]+\.[0-9]+$`
 	// +required
 	ComputeCapability string `json:"computeCapability"`
+
+	// migProfiles are the MIG instance shapes this GPU can be partitioned into.
+	//
+	// Leave empty to use ghostgpu's built-in table for the productName, which
+	// is what NVIDIA publishes for that hardware. Set it only for GPUs
+	// ghostgpu does not recognise, or to restrict a known GPU to a subset.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	MIGProfiles []MIGProfileSpec `json:"migProfiles,omitempty"`
+
+	// migBudget is what one physical GPU can hand out in total.
+	//
+	// Defaults to this model's own memory and the slice count of the built-in
+	// table. Deriving memory from the model rather than the table matters for
+	// hardware that shares a family but not a capacity — an H100 NVL carries
+	// 94GB, and inheriting the 80GB table budget would simulate a card the
+	// user did not ask for.
+	// +optional
+	MIGBudget *MIGBudgetSpec `json:"migBudget,omitempty"`
+}
+
+// MIGProfileSpec is one MIG instance shape and what it draws from its GPU.
+type MIGProfileSpec struct {
+	// name as NVIDIA reports it, e.g. "1g.10gb". This becomes part of the DRA
+	// device name and of an extended resource name under the mixed strategy,
+	// so it must be a valid resource name segment.
+	// +kubebuilder:validation:Pattern=`^[0-9]+g\.[0-9]+gb$`
+	// +required
+	Name string `json:"name"`
+
+	// memory this instance reserves from the GPU's framebuffer.
+	// +required
+	Memory resource.Quantity `json:"memory"`
+
+	// slices is the number of compute slices consumed.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=8
+	// +required
+	Slices int32 `json:"slices"`
+}
+
+// MIGBudgetSpec is the total a single physical GPU can hand out.
+type MIGBudgetSpec struct {
+	// memory available to MIG instances. Defaults to the model's memory.
+	// +optional
+	Memory *resource.Quantity `json:"memory,omitempty"`
+
+	// slices is the total compute slices on the GPU. NVIDIA MIG hardware
+	// exposes seven.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=8
+	// +kubebuilder:default=7
+	// +optional
+	Slices int32 `json:"slices,omitempty"`
 }
 
 // GPUModelStatus defines the observed state of GPUModel.
