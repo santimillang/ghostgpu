@@ -1,0 +1,65 @@
+# Legacy extended-resource path.
+#
+# All three pods target ghost-e2e-0 by hostname rather than by nodeName: the
+# point of the suite is that the real kube-scheduler makes the placement
+# decision, and setting nodeName would bypass it entirely.
+#
+# a and b consume the node's full 8 simulated GPUs. overflow asks for one more
+# and must stay Pending, which is the assertion that capacity is genuinely
+# accounted for rather than merely displayed.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-gpu-a
+spec:
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  nodeSelector:
+    kubernetes.io/hostname: ghost-e2e-0
+  containers:
+    - name: trainer
+      image: fake-trainer:latest
+      resources:
+        limits:
+          nvidia.com/gpu: "4"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-gpu-b
+spec:
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  nodeSelector:
+    kubernetes.io/hostname: ghost-e2e-0
+  containers:
+    - name: trainer
+      image: fake-trainer:latest
+      resources:
+        limits:
+          nvidia.com/gpu: "4"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-gpu-overflow
+spec:
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  nodeSelector:
+    kubernetes.io/hostname: ghost-e2e-0
+  containers:
+    - name: trainer
+      image: fake-trainer:latest
+      resources:
+        limits:
+          nvidia.com/gpu: "1"

@@ -1,0 +1,55 @@
+# DRA path with a topology constraint.
+#
+# The claim asks for two GPUs in NVLink domain-1. With gpusPerNode: 8 and
+# nvlinkDomainSize: 4, that is satisfiable only by gpu-4 through gpu-7, so the
+# devices the scheduler records in ResourceClaim.status prove it honoured the
+# attribute rather than picking arbitrarily.
+#
+# This is also the mechanism that makes ghostgpu work without a kubelet: the
+# scheduler writes exact device identity into the claim's status, so nothing
+# has to re-derive which pod holds which GPU.
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-e2e
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: e2e-two-gpus-same-nvlink
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpus
+          exactly:
+            deviceClassName: ghostgpu-e2e
+            count: 2
+            allocationMode: ExactCount
+            selectors:
+              - cel:
+                  expression: device.attributes["gpu.ghostgpu.dev"].nvlinkDomain == "domain-1"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-dra-job
+spec:
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  containers:
+    - name: trainer
+      image: fake-trainer:latest
+      resources:
+        claims:
+          - name: gpus
+  resourceClaims:
+    - name: gpus
+      resourceClaimTemplateName: e2e-two-gpus-same-nvlink
