@@ -66,7 +66,7 @@ Partition each GPU into MIG instances and let the scheduler enforce that overlap
 
 Profiles come from built-in tables matching NVIDIA's published instance counts, so an H100 offers seven `1g.10gb` per card but only four `1g.20gb` — memory binds before compute slices do. `--mig-profiles 1g.10gb,3g.40gb` restricts a pool to a subset.
 
-Exclusivity is enforced by the upstream scheduler through DRA shared counters; ghostgpu contributes no allocation logic. **On the DRA path this is faithful.** The legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy) cannot express exclusivity, because scalar resources have no way to say "these two are the same silicon" — see the fidelity contract in the design spec, and [#25](https://github.com/santimillang/ghostgpu/issues/25).
+Exclusivity is enforced by the upstream scheduler through DRA shared counters; ghostgpu contributes no allocation logic. **On the DRA path this is faithful.** The legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy) cannot express exclusivity, because scalar resources have no way to say "these two are the same silicon" — see the fidelity contract in the design spec, and [#28](https://github.com/santimillang/ghostgpu/issues/28).
 
 ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation. A node without it is never touched, whatever the pool selector matches — see [SECURITY.md](SECURITY.md).
 

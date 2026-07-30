@@ -658,6 +658,83 @@ func TestReconcilePreservesUnmanagedResources(t *testing.T) {
 	}
 }
 
+// A declared partition is static MIG: publish exactly the instances an
+// administrator created, and nothing else.
+func TestReconcilePublishesDeclaredPartition(t *testing.T) {
+	model, pool := migFixtures()
+	pool.Spec.MIGPartition = []v1alpha1.MIGPartitionEntry{
+		{Profile: "3g.40gb", Count: 1},
+		{Profile: profile1g10gb, Count: 4},
+	}
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+
+	var devices int
+	published := map[string]struct{}{}
+	for _, s := range listSlices(t, r) {
+		for _, d := range s.Spec.Devices {
+			devices++
+			published[d.Name] = struct{}{}
+		}
+	}
+
+	// 8 GPUs x 5 declared instances.
+	if devices != 40 {
+		t.Errorf("published %d devices, want 40 (8 GPUs x 5 declared instances)", devices)
+	}
+	for _, want := range []string{"gpu-0-3g-40gb-0", "gpu-0-1g-10gb-3", "gpu-7-1g-10gb-0"} {
+		if _, ok := published[want]; !ok {
+			t.Errorf("declared instance %q was not published", want)
+		}
+	}
+	// Undeclared profiles do not exist on this hardware right now.
+	for name := range published {
+		if strings.Contains(name, "7g-80gb") {
+			t.Errorf("published %q, which the partition does not create", name)
+		}
+	}
+
+	node := getNode(t, r, nodeA)
+	if got := node.Status.Capacity["nvidia.com/mig-1g.10gb"]; got.Value() != 32 {
+		t.Errorf("mig-1g.10gb = %d, want 32 (4 per GPU x 8)", got.Value())
+	}
+	if _, present := node.Status.Capacity["nvidia.com/mig-7g.80gb"]; present {
+		t.Error("mig-7g.80gb advertised despite not being in the partition")
+	}
+}
+
+// A layout the hardware cannot hold must never reach a node. Publishing it
+// would advertise capacity nothing can satisfy, which is the precise failure
+// this feature exists to remove.
+func TestReconcileRejectsUnfittablePartition(t *testing.T) {
+	model, pool := migFixtures()
+	pool.Spec.MIGPartition = []v1alpha1.MIGPartitionEntry{
+		{Profile: "7g.80gb", Count: 2}, // 14 slices on a 7-slice card
+	}
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+
+	ready := meta.FindStatusCondition(getPool(t, r).Status.Conditions, ConditionReady)
+	if ready == nil {
+		t.Fatal("Ready condition not set")
+	}
+	if ready.Status != metav1.ConditionFalse {
+		t.Errorf("Ready = %s, want False", ready.Status)
+	}
+	if ready.Reason != "MIGPartitionInvalid" {
+		t.Errorf("Reason = %q, want MIGPartitionInvalid", ready.Reason)
+	}
+
+	if slices := listSlices(t, r); len(slices) != 0 {
+		t.Errorf("%d slices published for an invalid partition", len(slices))
+	}
+	if _, present := getNode(t, r, nodeA).Status.Capacity["nvidia.com/mig-7g.80gb"]; present {
+		t.Error("capacity advertised for an invalid partition")
+	}
+}
+
 func TestReconcileMIGIsIdempotent(t *testing.T) {
 	model, pool := migFixtures()
 	r := newReconciler(model, pool, simNode(nodeA))
