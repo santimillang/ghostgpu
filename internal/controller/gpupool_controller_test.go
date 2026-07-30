@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"maps"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -31,6 +32,29 @@ import (
 
 	ghostgpuv1alpha1 "github.com/santimillang/ghostgpu/api/v1alpha1"
 )
+
+const kindGPUPool = "GPUPool"
+
+// rawPool builds a GPUPool the way a YAML manifest would, leaving out every key
+// the caller does not set.
+//
+// This exists because a typed client always serializes a struct field, so it
+// cannot reproduce an absent key — which is exactly how the v0.1 advertise
+// defaulting bug hid from every test that used one.
+func rawPool(name, modelRef string, spec map[string]any) *unstructured.Unstructured {
+	object := map[string]any{
+		"modelRef":    modelRef,
+		"gpusPerNode": int64(4),
+	}
+	maps.Copy(object, spec)
+
+	return &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "ghostgpu.dev/v1alpha1",
+		"kind":       kindGPUPool,
+		"metadata":   map[string]any{"name": name},
+		"spec":       object,
+	}}
+}
 
 // These specs run against a real API server via envtest, so they verify what
 // unit tests with a fake client cannot: that the generated CRD schema installs,
@@ -102,15 +126,7 @@ var _ = Describe("GPUPool", func() {
 	// Before spec.advertise carried its own `default={}`, such a pool resolved
 	// to dra=false and extendedResource=false and advertised nothing at all.
 	It("defaults advertise when a manifest omits the key entirely", func() {
-		raw := &unstructured.Unstructured{Object: map[string]any{
-			"apiVersion": "ghostgpu.dev/v1alpha1",
-			"kind":       "GPUPool",
-			"metadata":   map[string]any{"name": "no-advertise-key"},
-			"spec": map[string]any{
-				"modelRef":    modelName,
-				"gpusPerNode": int64(4),
-			},
-		}}
+		raw := rawPool("no-advertise-key", modelName, nil)
 		Expect(k8sClient.Create(ctx, raw)).To(Succeed())
 		DeferCleanup(func() {
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, raw))).To(Succeed())
@@ -164,6 +180,52 @@ var _ = Describe("GPUPool", func() {
 			},
 		}
 		Expect(k8sClient.Create(ctx, tooMany)).NotTo(Succeed())
+	})
+
+	// A manifest omitting sharingMode must land on "none". Unlike advertise,
+	// a string field is safe to default without a pointer: its zero value and
+	// its default are the same, so an explicit "none" and an absent key are
+	// indistinguishable by design rather than by accident.
+	It("defaults sharingMode to none when a manifest omits it", func() {
+		raw := rawPool("no-sharing-mode", modelName, nil)
+		Expect(k8sClient.Create(ctx, raw)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, raw))).To(Succeed())
+		})
+
+		fetched := &ghostgpuv1alpha1.GPUPool{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "no-sharing-mode"}, fetched)).To(Succeed())
+
+		Expect(fetched.Spec.SharingMode).To(Equal(ghostgpuv1alpha1.SharingModeNone))
+		Expect(fetched.Spec.MIGEnabled()).To(BeFalse())
+	})
+
+	It("accepts sharingMode mig", func() {
+		migPool := &ghostgpuv1alpha1.GPUPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "mig-pool"},
+			Spec: ghostgpuv1alpha1.GPUPoolSpec{
+				ModelRef:    modelName,
+				GPUsPerNode: 8,
+				SharingMode: ghostgpuv1alpha1.SharingModeMIG,
+			},
+		}
+		Expect(k8sClient.Create(ctx, migPool)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, migPool))).To(Succeed())
+		})
+
+		fetched := &ghostgpuv1alpha1.GPUPool{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "mig-pool"}, fetched)).To(Succeed())
+		Expect(fetched.Spec.MIGEnabled()).To(BeTrue())
+	})
+
+	// timeSlicing is v0.3. Accepting it now would let users write manifests
+	// that silently simulate nothing until the feature lands.
+	It("rejects sharing modes it does not implement yet", func() {
+		for _, mode := range []string{"timeSlicing", "mps", "MIG", ""} {
+			raw := rawPool("bad-sharing-mode", modelName, map[string]any{"sharingMode": mode})
+			Expect(k8sClient.Create(ctx, raw)).NotTo(Succeed(), "sharingMode %q should be rejected", mode)
+		}
 	})
 
 	It("round-trips MIG profiles and defaults the budget slice count", func() {

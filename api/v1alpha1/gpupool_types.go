@@ -100,8 +100,42 @@ type GPUPoolSpec struct {
 	// +optional
 	Advertise AdvertiseSpec `json:"advertise,omitempty"`
 
+	// sharingMode is how each physical GPU is divided.
+	//
+	// "none" advertises whole GPUs. "mig" partitions each GPU into MIG
+	// instances drawn from a shared compute-slice and memory budget, so
+	// overlapping profiles on one GPU are mutually exclusive.
+	//
+	// Unlike advertise, this is safe as a plain string: its zero value and its
+	// default are the same, so an omitted key and an explicit "none" are
+	// indistinguishable by design rather than by accident.
+	// +kubebuilder:validation:Enum=none;mig
+	// +kubebuilder:default=none
+	// +optional
+	SharingMode SharingMode `json:"sharingMode,omitempty"`
+
 	// +optional
 	Topology TopologySpec `json:"topology,omitempty"`
+}
+
+// SharingMode is how a physical GPU is divided among workloads.
+type SharingMode string
+
+const (
+	// SharingModeNone advertises whole, undivided GPUs.
+	SharingModeNone SharingMode = "none"
+
+	// SharingModeMIG partitions each GPU into MIG instances.
+	SharingModeMIG SharingMode = "mig"
+
+	// Time-slicing is planned for v0.3 and is deliberately absent from the
+	// enum. Accepting it now would let users write manifests that silently
+	// simulate nothing until the feature lands.
+)
+
+// MIGEnabled reports whether this pool partitions its GPUs into MIG instances.
+func (s GPUPoolSpec) MIGEnabled() bool {
+	return s.SharingMode == SharingModeMIG
 }
 
 // GPUPoolStatus defines the observed state of GPUPool.

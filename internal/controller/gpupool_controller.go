@@ -36,6 +36,7 @@ import (
 
 	ghostgpuv1alpha1 "github.com/santimillang/ghostgpu/api/v1alpha1"
 	"github.com/santimillang/ghostgpu/internal/gpu"
+	"github.com/santimillang/ghostgpu/internal/mig"
 	"github.com/santimillang/ghostgpu/internal/safety"
 )
 
@@ -96,6 +97,16 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, r.Status().Update(ctx, &pool)
 		}
 		return ctrl.Result{}, err
+	}
+
+	// A pool asking for MIG on a model that cannot be partitioned is a user
+	// error the API server cannot catch: it spans two objects. Surface it on
+	// status rather than publishing a pool that simulates nothing.
+	if pool.Spec.MIGEnabled() {
+		if _, err := mig.Resolve(&model); err != nil {
+			setReady(&pool, metav1.ConditionFalse, "MIGProfilesInvalid", err.Error())
+			return ctrl.Result{}, r.Status().Update(ctx, &pool)
+		}
 	}
 
 	var nodes corev1.NodeList
