@@ -86,6 +86,26 @@ func NodeResources(pool *v1alpha1.GPUPool, table mig.Table) corev1.ResourceList 
 		GPUResourceName: *resource.NewQuantity(0, resource.DecimalSI),
 	}
 
+	// A declared partition is the exact case. Every instance in it coexists, so
+	// the per-profile counts sum to something the hardware can genuinely
+	// satisfy and a scheduler cannot overcommit the node.
+	if declared := pool.Spec.MIGPartition; len(declared) > 0 {
+		perGPU := make(map[string]int32, len(declared))
+		for _, e := range declared {
+			perGPU[e.Profile] += e.Count
+		}
+		// Iterate the table, not the entries, so output order is stable.
+		for _, profile := range table.Profiles {
+			if count := int64(perGPU[profile.Name]) * gpus; count > 0 {
+				resources[MIGResourceName(profile.Name)] = *resource.NewQuantity(count, resource.DecimalSI)
+			}
+		}
+		return resources
+	}
+
+	// Without one, each count is the most instances of that profile the card
+	// could hold. Individually faithful; their sum overcommits, because these
+	// are alternatives and a scalar resource cannot say so. See issue #28.
 	for _, profile := range table.Profiles {
 		count := MaxInstances(profile, table.Budget) * gpus
 		if count <= 0 {

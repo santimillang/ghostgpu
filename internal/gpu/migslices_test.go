@@ -18,12 +18,20 @@ package gpu
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/santimillang/ghostgpu/api/v1alpha1"
 	"github.com/santimillang/ghostgpu/internal/mig"
+)
+
+const (
+	profileWholeGPU = "7g.80gb"
+	profileThird    = "3g.40gb"
+	profileSmallest = "1g.10gb"
 )
 
 func h100Table(t *testing.T) mig.Table {
@@ -294,13 +302,13 @@ func TestBuildMIGSlicesDeviceAttributes(t *testing.T) {
 
 	d := devices[0].Spec.Devices[0]
 
-	strings := map[resourcev1.QualifiedName]string{
+	stringAttrs := map[resourcev1.QualifiedName]string{
 		AttrProductName: productH100,
 		AttrVendor:      vendorNVIDIA,
 		AttrMIGProfile:  table.Profiles[0].Name,
 		AttrUUID:        DeviceUUID(nodeA, 0),
 	}
-	for name, want := range strings {
+	for name, want := range stringAttrs {
 		attr, ok := d.Attributes[name]
 		if !ok || attr.StringValue == nil {
 			t.Errorf("attribute %q missing", name)
@@ -383,6 +391,49 @@ func TestBuildMIGSlicesZeroGPUs(t *testing.T) {
 	}
 }
 
+// Under a declared partition the slices carry exactly the instances the
+// administrator created, with an ordinal distinguishing repeats of one profile.
+func TestBuildMIGSlicesWithDeclaredPartition(t *testing.T) {
+	table := h100Table(t)
+	pool := testPool(4, 4, true)
+	pool.Spec.SharingMode = v1alpha1.SharingModeMIG
+	pool.Spec.MIGPartition = []v1alpha1.MIGPartitionEntry{
+		{Profile: profileThird, Count: 1},
+		{Profile: profileSmallest, Count: 4},
+	}
+
+	slices := BuildMIGSlices(pool, testModel(), table, nodeA)
+	counters, devices := partition(slices)
+
+	if len(counters) != 1 {
+		t.Errorf("got %d counter slices, want 1 for 4 GPUs", len(counters))
+	}
+
+	names := map[string]struct{}{}
+	total := 0
+	for _, s := range devices {
+		for _, d := range s.Spec.Devices {
+			names[d.Name] = struct{}{}
+			total++
+		}
+	}
+
+	// 4 GPUs x 5 declared instances.
+	if total != 20 {
+		t.Errorf("got %d devices, want 20 (4 GPUs x 5 declared instances)", total)
+	}
+	for _, want := range []string{"gpu-0-3g-40gb-0", "gpu-0-1g-10gb-3", "gpu-3-1g-10gb-0"} {
+		if _, ok := names[want]; !ok {
+			t.Errorf("declared instance %q missing", want)
+		}
+	}
+	for name := range names {
+		if strings.Contains(name, profileWholeGPU) {
+			t.Errorf("published %q, which the partition does not create", name)
+		}
+	}
+}
+
 // A profile whose memory equals the whole budget must still be expressible;
 // this is the 7g.80gb case, which is the entire GPU.
 func TestBuildMIGSlicesWholeGPUProfile(t *testing.T) {
@@ -392,7 +443,7 @@ func TestBuildMIGSlicesWholeGPUProfile(t *testing.T) {
 
 	var whole *resourcev1.Device
 	for i, d := range devices[0].Spec.Devices {
-		if attr := d.Attributes[AttrMIGProfile]; attr.StringValue != nil && *attr.StringValue == "7g.80gb" {
+		if attr := d.Attributes[AttrMIGProfile]; attr.StringValue != nil && *attr.StringValue == profileWholeGPU {
 			whole = &devices[0].Spec.Devices[i]
 		}
 	}
