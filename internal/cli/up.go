@@ -26,6 +26,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -64,6 +65,65 @@ type UpOptions struct {
 	// MIGProfiles optionally restricts a MIG pool to a subset of the profiles
 	// its hardware supports, as a comma-separated list of profile names.
 	MIGProfiles string
+
+	// MIGPartition optionally declares which MIG instances actually exist, as
+	// "profile=count" pairs. Empty models dynamic MIG.
+	MIGPartition string
+}
+
+// ParsePartition turns a "3g.40gb=1,1g.10gb=4" flag value into partition
+// entries.
+//
+// A bare profile name means one instance, which is the common case and reads
+// better than requiring "=1" everywhere.
+func ParsePartition(s string) ([]v1alpha1.MIGPartitionEntry, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+
+	var entries []v1alpha1.MIGPartitionEntry
+	seen := map[string]bool{}
+
+	for pair := range strings.SplitSeq(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			return nil, fmt.Errorf("invalid partition %q: empty entry", s)
+		}
+
+		profile, countText, hasCount := strings.Cut(pair, "=")
+		profile = strings.TrimSpace(profile)
+		if profile == "" {
+			return nil, fmt.Errorf("invalid partition %q: entry %q names no profile", s, pair)
+		}
+		if seen[profile] {
+			// The API stores this as a list keyed by profile, so two entries
+			// for one profile could not both survive. Summing them silently
+			// would be a guess at what the user meant.
+			return nil, fmt.Errorf("invalid partition %q: profile %q appears twice", s, profile)
+		}
+		seen[profile] = true
+
+		count := int64(1)
+		if hasCount {
+			parsed, err := strconv.ParseInt(strings.TrimSpace(countText), 10, 32)
+			if err != nil {
+				return nil, fmt.Errorf("invalid partition %q: count for %q is not a number", s, profile)
+			}
+			if parsed < 1 {
+				return nil, fmt.Errorf(
+					"invalid partition %q: count for %q is %d; an instance that does not exist is not part of a partition",
+					s, profile, parsed)
+			}
+			count = parsed
+		}
+
+		entries = append(entries, v1alpha1.MIGPartitionEntry{
+			Profile: profile,
+			Count:   int32(count),
+		})
+	}
+
+	return entries, nil
 }
 
 // migSelection resolves the profiles a MIG pool should expose.
@@ -124,6 +184,17 @@ func migSelection(opts UpOptions) ([]v1alpha1.MIGProfileSpec, error) {
 	return selected, nil
 }
 
+// toMIGProfiles converts the API's profile shape back into the mig package's,
+// so a partition can be validated against a user-restricted profile set rather
+// than against everything the hardware supports.
+func toMIGProfiles(specs []v1alpha1.MIGProfileSpec) []mig.Profile {
+	out := make([]mig.Profile, 0, len(specs))
+	for _, s := range specs {
+		out = append(out, mig.Profile{Name: s.Name, Memory: s.Memory, Slices: s.Slices})
+	}
+	return out
+}
+
 // ParseSelector turns a "k=v,k2=v2" flag value into a label map.
 //
 // An empty string yields an empty map rather than an error: a pool with no
@@ -182,14 +253,36 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 		return nil, fmt.Errorf("invalid sharing-mode %q: want none or mig", opts.SharingMode)
 	}
 
-	var profiles []v1alpha1.MIGProfileSpec
+	var (
+		profiles  []v1alpha1.MIGProfileSpec
+		partition []v1alpha1.MIGPartitionEntry
+	)
 	switch {
 	case sharingMode == v1alpha1.SharingModeMIG:
 		if profiles, err = migSelection(opts); err != nil {
 			return nil, err
 		}
+		if partition, err = ParsePartition(opts.MIGPartition); err != nil {
+			return nil, err
+		}
+		// Validated here against the same budget the operator uses, so a
+		// layout that cannot fit is caught before it reaches a cluster — and
+		// caught by --dry-run, which never reaches one at all.
+		if len(partition) > 0 {
+			table, known := mig.ProfilesFor(opts.Product)
+			if known {
+				if len(profiles) > 0 {
+					table.Profiles = toMIGProfiles(profiles)
+				}
+				if err = mig.ValidatePartition(partition, table); err != nil {
+					return nil, err
+				}
+			}
+		}
 	case opts.MIGProfiles != "":
 		return nil, fmt.Errorf("mig-profiles requires sharing-mode mig")
+	case opts.MIGPartition != "":
+		return nil, fmt.Errorf("mig-partition requires sharing-mode mig")
 	}
 
 	selector, err := ParseSelector(opts.NodeSelector)
@@ -231,7 +324,8 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 				DRA:              ptr.To(opts.DRA),
 				ExtendedResource: ptr.To(opts.ExtendedResource),
 			},
-			SharingMode: sharingMode,
+			SharingMode:  sharingMode,
+			MIGPartition: partition,
 			Topology: v1alpha1.TopologySpec{
 				NVLinkDomainSize: opts.NVLinkDomainSize,
 				NUMAAware:        opts.NUMAAware,

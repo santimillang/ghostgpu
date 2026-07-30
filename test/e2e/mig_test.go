@@ -22,6 +22,7 @@ package e2e
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -192,6 +193,94 @@ var _ = Describe("MIG", Ordered, func() {
 			g.Expect(jsonPath(g, "gpupool", migPoolName, "{.status.migProfilesPublished}")).To(Equal("6"))
 			g.Expect(jsonPath(g, "gpupool", migPoolName, "{.status.nodesMatched}")).To(Equal("1"))
 		}, 2*time.Minute, 2*time.Second).Should(Succeed())
+	})
+
+	// A declared partition is the whole reason issue #28 exists. Without one,
+	// the scalar projection advertises alternatives whose sum no card can
+	// satisfy; with one, the advertised instances are exactly what exists.
+	//
+	// This is the spec that would have caught the original bug, so it asserts
+	// the arithmetic rather than trusting it: the per-profile counts are read
+	// back off the node and checked to fit a single GPU's budget.
+	Context("a statically declared partition", func() {
+		const staticNode = "ghost-static-0"
+
+		BeforeAll(func() {
+			_, err := utils.Run(exec.Command("kubectl", "apply", "-f",
+				testdata("mig-partition-pool.yaml")))
+			Expect(err).NotTo(HaveOccurred())
+
+			DeferCleanup(func() {
+				_, _ = utils.Run(exec.Command("kubectl", "delete", "-f",
+					testdata("mig-partition-pool.yaml"), "--ignore-not-found"))
+			})
+		})
+
+		It("advertises only the declared instances", func() {
+			Eventually(func(g Gomega) {
+				// 1 x 3g.40gb per GPU across 2 GPUs.
+				g.Expect(jsonPath(g, "node", staticNode, `{.status.capacity.nvidia\.com/mig-3g\.40gb}`)).
+					To(Equal("2"))
+				// 4 x 1g.10gb per GPU across 2 GPUs.
+				g.Expect(jsonPath(g, "node", staticNode, `{.status.capacity.nvidia\.com/mig-1g\.10gb}`)).
+					To(Equal("8"))
+				// Undeclared profiles do not exist on this hardware.
+				g.Expect(jsonPath(g, "node", staticNode, `{.status.capacity.nvidia\.com/mig-7g\.80gb}`)).
+					To(BeEmpty(), "a profile the partition does not create was advertised")
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+		})
+
+		// The assertion the whole feature exists for.
+		It("advertises a total the hardware can actually satisfy", func() {
+			var slices, memoryGi int
+
+			for _, p := range []struct {
+				profile  string
+				slices   int
+				memoryGi int
+			}{
+				{"3g.40gb", 3, 40},
+				{"1g.10gb", 1, 10},
+				{"7g.80gb", 7, 80},
+				{"1g.20gb", 1, 20},
+				{"2g.20gb", 2, 20},
+				{"4g.40gb", 4, 40},
+			} {
+				raw, err := kubectlTry("get", "node", staticNode, "-o",
+					fmt.Sprintf(`jsonpath={.status.capacity.nvidia\.com/mig-%s}`,
+						strings.ReplaceAll(p.profile, ".", `\.`)))
+				Expect(err).NotTo(HaveOccurred())
+				if raw == "" {
+					continue
+				}
+				count, err := strconv.Atoi(raw)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Two GPUs on this node, so per-card consumption is half.
+				perGPU := count / 2
+				slices += p.slices * perGPU
+				memoryGi += p.memoryGi * perGPU
+			}
+
+			Expect(slices).To(BeNumerically("<=", 7),
+				"advertised instances need %d compute slices, but an H100 has 7", slices)
+			Expect(memoryGi).To(BeNumerically("<=", 80),
+				"advertised instances need %dGi, but an H100 has 80Gi", memoryGi)
+		})
+
+		// Every declared instance coexists, so all of them can be held at once —
+		// which is precisely what the dynamic projection cannot promise.
+		It("publishes every declared instance as a distinct device", func() {
+			Eventually(func(g Gomega) {
+				devices := jsonPath(g, "resourceslice", "static-pool-"+staticNode+"-devices-0",
+					"{.spec.devices[*].name}")
+				names := strings.Fields(devices)
+				// 2 GPUs x 5 declared instances.
+				g.Expect(names).To(HaveLen(10))
+				g.Expect(names).To(ContainElements(
+					"gpu-0-3g-40gb-0", "gpu-0-1g-10gb-3", "gpu-1-1g-10gb-0"))
+			}, 2*time.Minute, 2*time.Second).Should(Succeed())
+		})
 	})
 
 	Context("exclusivity across a counter-slice boundary", func() {
