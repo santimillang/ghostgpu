@@ -77,6 +77,28 @@ By default this models **dynamic MIG**, as NVIDIA's DRA driver does: every profi
 
 The distinction matters for the legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy). Scalar resources cannot say "these two are the same silicon", so under dynamic MIG a node advertises alternatives whose *sum* no card could satisfy — each count is right, their total is not. **A declared partition makes that projection exact**, because the declared instances all coexist. The DRA path is faithful either way. See the fidelity contract in the design spec and [#28](https://github.com/santimillang/ghostgpu/issues/28).
 
+### Seeing what happened
+
+Scheduling is the point, so ghostgpu can tell you what the scheduler did without hand-writing jsonpath against `ResourceClaim`s:
+
+```sh
+$ ghostgpu status
+POOL       MODE  NODES  DEVICES  ALLOCATED  FREE
+h100-pool  mig   2      40       1          39
+
+$ ghostgpu status --node ghost-mig-0
+NODE         DEVICE           PROFILE  STATUS     POD
+ghost-mig-0  gpu-0-1g-10gb-0  1g.10gb  free       -
+ghost-mig-0  gpu-0-3g-40gb-0  3g.40gb  allocated  default/trainer
+
+$ ghostgpu status --budgets --node ghost-mig-0
+NODE         GPU    SLICES  MEMORY
+ghost-mig-0  gpu-0  3/7     40Gi/80Gi
+ghost-mig-0  gpu-1  0/7     0/80Gi
+```
+
+The budget view answers the question that is genuinely tedious to work out by hand: how much of a physical GPU is already spoken for, and therefore why another MIG instance will not fit. Everything is derived from objects already in the cluster — ghostgpu stores no allocation state of its own.
+
 ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation. A node without it is never touched, whatever the pool selector matches — see [SECURITY.md](SECURITY.md).
 
 ## Capabilities

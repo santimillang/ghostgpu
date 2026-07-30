@@ -29,18 +29,21 @@ import (
 	"os"
 	"time"
 
+	resourcev1 "k8s.io/api/resource/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	ghostgpuv1alpha1 "github.com/santimillang/ghostgpu/api/v1alpha1"
 	"github.com/santimillang/ghostgpu/internal/cli"
 )
 
 const usage = `ghostgpu simulates GPU clusters on Kubernetes.
 
 Usage:
-  ghostgpu up [flags]     create or update a simulated GPU pool
+  ghostgpu up [flags]       create or update a simulated GPU pool
+  ghostgpu status [flags]   show what is published and who holds it
 
-Run "ghostgpu up -h" for the available flags.
+Run "ghostgpu <command> -h" for the available flags.
 `
 
 // say writes a line to w. Failures writing to stdout are not actionable in a
@@ -57,11 +60,92 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
-	if len(args) == 0 || args[0] != "up" {
+	if len(args) == 0 {
 		say(stderr, "%s", usage)
 		os.Exit(2)
 	}
 
+	switch args[0] {
+	case "up":
+		return runUp(args, stdout, stderr)
+	case "status":
+		return runStatus(args, stdout, stderr)
+	default:
+		say(stderr, "%s", usage)
+		os.Exit(2)
+		return nil
+	}
+}
+
+// runStatus answers "what is published, and who holds it".
+//
+// Everything is derived from objects already in the cluster, so this reads and
+// never writes — the same information a user would otherwise assemble from
+// several kubectl jsonpath queries.
+func runStatus(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("ghostgpu status", flag.ExitOnError)
+	fs.SetOutput(stderr)
+
+	node := fs.String("node", "", "show devices on this node only")
+	devices := fs.Bool("devices", false, "list individual devices and their holders")
+	budgets := fs.Bool("budgets", false,
+		"show each GPU's consumed compute slices and memory, which is what explains why a MIG instance will not fit")
+
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+
+	var pools ghostgpuv1alpha1.GPUPoolList
+	if err := c.List(ctx, &pools); err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+
+	var slices resourcev1.ResourceSliceList
+	if err := c.List(ctx, &slices); err != nil {
+		return fmt.Errorf("listing resource slices: %w", err)
+	}
+
+	var claims resourcev1.ResourceClaimList
+	if err := c.List(ctx, &claims); err != nil {
+		return fmt.Errorf("listing resource claims: %w", err)
+	}
+
+	report := cli.BuildReport(pools.Items, slices.Items, claims.Items)
+
+	// --node filters a view rather than choosing one, so that --budgets --node
+	// shows budgets for that node. It only implies the device list when no view
+	// was asked for, since the pool summary does not change when a node is named.
+	showDevices := *devices
+	if !*devices && !*budgets {
+		if *node == "" {
+			say(stdout, "%s", cli.RenderPools(report))
+			if len(report.Pools) == 0 {
+				say(stdout, "no GPUPools found\n")
+			}
+			return nil
+		}
+		showDevices = true
+	}
+
+	if showDevices {
+		say(stdout, "%s", cli.RenderDevices(report, *node))
+	}
+	if *budgets {
+		if showDevices {
+			say(stdout, "\n")
+		}
+		say(stdout, "%s", cli.RenderGPUs(report, *node))
+	}
+	return nil
+}
+
+func runUp(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("ghostgpu up", flag.ExitOnError)
 	fs.SetOutput(stderr)
 
