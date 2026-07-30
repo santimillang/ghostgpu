@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -51,10 +51,6 @@ const (
 	// survives. This label is how a reconcile finds the slices it owns so it
 	// can prune the ones no longer backed by a node.
 	PoolLabel = "ghostgpu.dev/pool"
-
-	// GPUResourceName is the legacy extended resource ghostgpu advertises
-	// alongside DRA, for schedulers and tooling that predate it.
-	GPUResourceName corev1.ResourceName = "nvidia.com/gpu"
 )
 
 // GPUPoolReconciler reconciles a GPUPool object.
@@ -139,7 +135,7 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			devices += published
 		}
 
-		if err := r.reconcileNode(ctx, &pool, &model, node); err != nil {
+		if err := r.reconcileNode(ctx, &pool, &model, table, node); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -256,21 +252,16 @@ func (r *GPUPoolReconciler) reconcileNode(
 	ctx context.Context,
 	pool *ghostgpuv1alpha1.GPUPool,
 	model *ghostgpuv1alpha1.GPUModel,
+	table mig.Table,
 	node *corev1.Node,
 ) error {
 	if pool.Spec.Advertise.ExtendedResourceEnabled() {
-		want := *resource.NewQuantity(int64(pool.Spec.GPUsPerNode), resource.DecimalSI)
+		want := gpu.NodeResources(pool, table)
 
-		if !hasQuantity(node.Status.Capacity, want) || !hasQuantity(node.Status.Allocatable, want) {
+		if !resourcesMatch(node.Status.Capacity, want) || !resourcesMatch(node.Status.Allocatable, want) {
 			patched := node.DeepCopy()
-			if patched.Status.Capacity == nil {
-				patched.Status.Capacity = corev1.ResourceList{}
-			}
-			if patched.Status.Allocatable == nil {
-				patched.Status.Allocatable = corev1.ResourceList{}
-			}
-			patched.Status.Capacity[GPUResourceName] = want
-			patched.Status.Allocatable[GPUResourceName] = want
+			patched.Status.Capacity = applyGPUResources(patched.Status.Capacity, want)
+			patched.Status.Allocatable = applyGPUResources(patched.Status.Allocatable, want)
 
 			if err := r.Status().Patch(ctx, patched, client.MergeFrom(node)); err != nil {
 				return err
@@ -292,12 +283,51 @@ func (r *GPUPoolReconciler) reconcileNode(
 	return r.Patch(ctx, patched, client.MergeFrom(node))
 }
 
-// hasQuantity reports whether the list already advertises want for the GPU
-// extended resource. An absent entry never counts as a match, so a node that
-// has never been patched is always updated.
-func hasQuantity(list corev1.ResourceList, want resource.Quantity) bool {
-	got, ok := list[GPUResourceName]
-	return ok && got.Cmp(want) == 0
+// managesResource reports whether a resource is one ghostgpu advertises, and so
+// one it is responsible for removing when it should no longer be there.
+//
+// Scoping by prefix rather than by an exact set is what makes a sharing-mode
+// switch safe: the resources published before the switch are not known to the
+// code running after it, but they are all under this prefix.
+func managesResource(name corev1.ResourceName) bool {
+	return name == gpu.GPUResourceName || strings.HasPrefix(string(name), gpu.MIGResourcePrefix)
+}
+
+// resourcesMatch reports whether the node already advertises exactly the
+// desired GPU resources, with no stale ones left over.
+//
+// The staleness half matters as much as the presence half. Switching a pool to
+// MIG replaces nvidia.com/gpu with per-profile resources, and a node that kept
+// its old whole-GPU count would advertise capacity that nothing can satisfy.
+func resourcesMatch(have, want corev1.ResourceList) bool {
+	for name, wantQty := range want {
+		haveQty, ok := have[name]
+		if !ok || haveQty.Cmp(wantQty) != 0 {
+			return false
+		}
+	}
+	for name := range have {
+		if managesResource(name) {
+			if _, expected := want[name]; !expected {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// applyGPUResources returns list with ghostgpu's resources set to want and any
+// other ghostgpu-managed resource removed. Resources it does not manage, such
+// as cpu and memory, are left untouched.
+func applyGPUResources(list, want corev1.ResourceList) corev1.ResourceList {
+	out := corev1.ResourceList{}
+	for name, qty := range list {
+		if !managesResource(name) {
+			out[name] = qty
+		}
+	}
+	maps.Copy(out, want)
+	return out
 }
 
 // labelsMatch reports whether every desired label is already present with the

@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -523,6 +524,137 @@ func TestReconcileMIGRefusesRealNodes(t *testing.T) {
 	node := getNode(t, r, "real-node")
 	if _, touched := node.Status.Capacity[gpuResource]; touched {
 		t.Error("SAFETY VIOLATION: unmanaged node capacity was modified")
+	}
+}
+
+func TestReconcileAdvertisesMixedStrategyResources(t *testing.T) {
+	model, pool := migFixtures()
+	r := newReconciler(model, pool, simNode(nodeA))
+
+	reconcileOnce(t, r)
+	node := getNode(t, r, nodeA)
+
+	for _, list := range []corev1.ResourceList{node.Status.Capacity, node.Status.Allocatable} {
+		whole, ok := list[gpuResource]
+		if !ok {
+			t.Error("nvidia.com/gpu absent; a partitioned node must say it has no whole cards")
+		} else if whole.Value() != 0 {
+			t.Errorf("nvidia.com/gpu = %d, want 0 under MIG", whole.Value())
+		}
+
+		// 7 instances of 1g.10gb per GPU across 8 GPUs.
+		small := list["nvidia.com/mig-1g.10gb"]
+		if small.Value() != 56 {
+			t.Errorf("nvidia.com/mig-1g.10gb = %d, want 56", small.Value())
+		}
+		// Only one 7g.80gb fits per card.
+		whole80 := list["nvidia.com/mig-7g.80gb"]
+		if whole80.Value() != 8 {
+			t.Errorf("nvidia.com/mig-7g.80gb = %d, want 8", whole80.Value())
+		}
+	}
+
+	if node.Labels["nvidia.com/mig.capable"] != "true" {
+		t.Error("missing nvidia.com/mig.capable label")
+	}
+	if node.Labels["nvidia.com/mig.strategy"] != "mixed" {
+		t.Errorf("mig.strategy = %q, want mixed", node.Labels["nvidia.com/mig.strategy"])
+	}
+	// Under the mixed strategy gpu.count reports GPUs that are NOT partitioned.
+	if node.Labels["nvidia.com/gpu.count"] != "0" {
+		t.Errorf("gpu.count = %q, want 0 when every GPU is partitioned",
+			node.Labels["nvidia.com/gpu.count"])
+	}
+}
+
+// Patching capacity downward is easy to get wrong, and getting it wrong leaves
+// phantom capacity: resources a scheduler will happily allocate against and
+// nothing can satisfy. Both directions of the switch have to clean up.
+func TestReconcileRemovesStaleResourcesOnSharingModeSwitch(t *testing.T) {
+	t.Run("none to mig drops the whole-GPU count", func(t *testing.T) {
+		model, pool := fixtures()
+		model.Spec.ProductName = productH100MIG
+		r := newReconciler(model, pool, simNode(nodeA))
+		reconcileOnce(t, r)
+
+		if got := getNode(t, r, nodeA).Status.Capacity[gpuResource]; got.Value() != 8 {
+			t.Fatalf("setup: nvidia.com/gpu = %d, want 8", got.Value())
+		}
+
+		live := getPool(t, r)
+		live.Spec.SharingMode = v1alpha1.SharingModeMIG
+		if err := r.Update(t.Context(), live); err != nil {
+			t.Fatalf("update pool: %v", err)
+		}
+		reconcileOnce(t, r)
+
+		node := getNode(t, r, nodeA)
+		if got := node.Status.Capacity[gpuResource]; got.Value() != 0 {
+			t.Errorf("nvidia.com/gpu = %d after switching to MIG, want 0; whole cards are no longer allocatable",
+				got.Value())
+		}
+		if got := node.Status.Capacity["nvidia.com/mig-1g.10gb"]; got.Value() != 56 {
+			t.Errorf("nvidia.com/mig-1g.10gb = %d, want 56", got.Value())
+		}
+	})
+
+	t.Run("mig to none removes every per-profile resource", func(t *testing.T) {
+		model, pool := migFixtures()
+		r := newReconciler(model, pool, simNode(nodeA))
+		reconcileOnce(t, r)
+
+		if got := getNode(t, r, nodeA).Status.Capacity["nvidia.com/mig-1g.10gb"]; got.Value() != 56 {
+			t.Fatalf("setup: mig-1g.10gb = %d, want 56", got.Value())
+		}
+
+		live := getPool(t, r)
+		live.Spec.SharingMode = v1alpha1.SharingModeNone
+		if err := r.Update(t.Context(), live); err != nil {
+			t.Fatalf("update pool: %v", err)
+		}
+		reconcileOnce(t, r)
+
+		node := getNode(t, r, nodeA)
+		for name := range node.Status.Capacity {
+			if strings.HasPrefix(string(name), "nvidia.com/mig-") {
+				t.Errorf("PHANTOM CAPACITY: %s survived the switch away from MIG", name)
+			}
+		}
+		for name := range node.Status.Allocatable {
+			if strings.HasPrefix(string(name), "nvidia.com/mig-") {
+				t.Errorf("PHANTOM CAPACITY: allocatable %s survived the switch away from MIG", name)
+			}
+		}
+		if got := node.Status.Capacity[gpuResource]; got.Value() != 8 {
+			t.Errorf("nvidia.com/gpu = %d, want 8 restored", got.Value())
+		}
+	})
+}
+
+// Resources ghostgpu does not manage must survive untouched. Wiping a node's
+// cpu or memory while adjusting GPU capacity would make it unschedulable for
+// everything.
+func TestReconcilePreservesUnmanagedResources(t *testing.T) {
+	model, pool := migFixtures()
+	node := simNode(nodeA)
+	node.Status.Capacity = corev1.ResourceList{
+		"cpu":                           resource.MustParse("64"),
+		"memory":                        resource.MustParse("256Gi"),
+		"example.com/other-accelerator": resource.MustParse("2"),
+	}
+	node.Status.Allocatable = node.Status.Capacity.DeepCopy()
+	r := newReconciler(model, pool, node)
+
+	reconcileOnce(t, r)
+
+	got := getNode(t, r, nodeA)
+	for _, name := range []corev1.ResourceName{"cpu", "memory", "example.com/other-accelerator"} {
+		if _, ok := got.Status.Capacity[name]; !ok {
+			t.Errorf("unmanaged resource %s was removed", name)
+		}
+	}
+	if cpu := got.Status.Capacity["cpu"]; cpu.Value() != 64 {
+		t.Errorf("cpu = %d, want 64 unchanged", cpu.Value())
 	}
 }
 
