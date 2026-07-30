@@ -119,6 +119,10 @@ test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests against
 cleanup-test-e2e: ## Tear down the kwok cluster used for e2e tests
 	@$(KWOKCTL) delete cluster --name $(KWOK_CLUSTER)
 
+.PHONY: build-cli
+build-cli: manifests generate fmt vet ## Build the ghostgpu CLI.
+	go build -o bin/ghostgpu ./cmd/ghostgpu
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run

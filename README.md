@@ -14,7 +14,7 @@ Simulate GPU clusters on Kubernetes. Test GPU-aware schedulers, autoscalers, and
 
 ghostgpu builds on [kwok](https://kwok.sigs.k8s.io/) and publishes Dynamic Resource Allocation (DRA) `ResourceSlice`s plus legacy extended-resource capacity, so a real `kube-scheduler` makes real placement decisions against hardware that does not exist.
 
-> **Status:** early development. Not yet usable.
+> **Status:** early development. The v0.1 core works and is covered end-to-end against a real `kube-scheduler`, but nothing is released yet and the `v1alpha1` API carries no compatibility guarantee. Build from source.
 
 ## Why
 
@@ -22,11 +22,47 @@ Testing GPU scheduling logic normally requires GPUs — expensive to idle, slow 
 
 Already verified against a real `kube-scheduler`: pods are placed against simulated GPU capacity and correctly refused once that capacity is exhausted — including MIG-style partitioning, where overlapping profiles on the same physical GPU are mutually exclusive.
 
-## Planned capabilities
+## Quickstart
+
+Needs [`kwokctl`](https://kwok.sigs.k8s.io/docs/user/installation/), `kind`, Docker, and Go.
+
+```sh
+# 1. A kwok cluster with DRA enabled
+kwokctl create cluster --name ghostgpu --runtime kind \
+  --kube-feature-gates "DynamicResourceAllocation=true" \
+  --kube-runtime-config "resource.k8s.io/v1=true"
+
+# 2. Install the CRDs and run the operator
+make install
+make run
+
+# 3. Give your kwok nodes some GPUs
+make build-cli
+./bin/ghostgpu up --gpus-per-node 8 --nvlink-domain-size 4
+```
+
+```
+gpumodel/h100 created
+gpupool/h100-pool created
+simulating 16 GPUs across 2 nodes
+```
+
+Each node now advertises `nvidia.com/gpu: 8`, GPU Feature Discovery labels, and a DRA `ResourceSlice` whose devices carry product, UUID, and NVLink-domain attributes. Pods scheduling against them are placed by the real scheduler, and refused when the simulated capacity runs out.
+
+`--dry-run` prints the manifests instead of applying them, and contacts no cluster:
+
+```sh
+./bin/ghostgpu up --gpu NVIDIA-A100-SXM4-40GB --memory 40Gi \
+  --compute-capability 8.0 --dry-run | kubectl apply -f -
+```
+
+ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation. A node without it is never touched, whatever the pool selector matches — see [SECURITY.md](SECURITY.md).
+
+## Capabilities
 
 | Area | Status |
 |---|---|
-| DRA `ResourceSlice` publication + legacy `nvidia.com/gpu` capacity | in progress (v0.1) |
+| DRA `ResourceSlice` publication + legacy `nvidia.com/gpu` capacity + GFD labels | working, unreleased (v0.1) |
 | MIG / partitionable devices | planned (v0.2) |
 | DCGM-shaped Prometheus metrics | planned (v0.3) |
 | Behavioral workload simulation (weight-download → warmup → training) | planned (v0.4) |
@@ -45,6 +81,7 @@ Requires Linux (or WSL2 on Windows): `kubebuilder` ships no Windows binary, and 
 ```sh
 make manifests generate   # regenerate CRDs and deepcopy code
 make build                # build the manager
+make build-cli            # build the ghostgpu CLI
 make test                 # unit tests + envtest
 make test-e2e             # e2e against kwok + kind
 ```
