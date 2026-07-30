@@ -23,7 +23,9 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -61,7 +63,7 @@ var _ = Describe("GPUPool", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: poolName},
 			Spec: ghostgpuv1alpha1.GPUPoolSpec{
 				ModelRef:     modelName,
-				NodeSelector: map[string]string{"type": "kwok"},
+				NodeSelector: map[string]string{nodeTypeLabel: kwokNodeType},
 				GPUsPerNode:  8,
 				Topology:     ghostgpuv1alpha1.TopologySpec{NVLinkDomainSize: 4},
 			},
@@ -90,8 +92,61 @@ var _ = Describe("GPUPool", func() {
 		fetched := &ghostgpuv1alpha1.GPUPool{}
 		Expect(k8sClient.Get(ctx, poolKey, fetched)).To(Succeed())
 
-		Expect(fetched.Spec.Advertise.DRA).To(BeTrue(), "DRA should default to true")
-		Expect(fetched.Spec.Advertise.ExtendedResource).To(BeTrue(), "extendedResource should default to true")
+		Expect(fetched.Spec.Advertise.DRAEnabled()).To(BeTrue(), "DRA should default to true")
+		Expect(fetched.Spec.Advertise.ExtendedResourceEnabled()).To(BeTrue(), "extendedResource should default to true")
+	})
+
+	// Regression: a Go client always serializes advertise as at least `{}`, so
+	// the nested defaults apply and the bug below stays hidden. A manifest that
+	// omits the key entirely gives the API server nothing to default into.
+	// Before spec.advertise carried its own `default={}`, such a pool resolved
+	// to dra=false and extendedResource=false and advertised nothing at all.
+	It("defaults advertise when a manifest omits the key entirely", func() {
+		raw := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "ghostgpu.dev/v1alpha1",
+			"kind":       "GPUPool",
+			"metadata":   map[string]any{"name": "no-advertise-key"},
+			"spec": map[string]any{
+				"modelRef":    modelName,
+				"gpusPerNode": int64(4),
+			},
+		}}
+		Expect(k8sClient.Create(ctx, raw)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, raw))).To(Succeed())
+		})
+
+		fetched := &ghostgpuv1alpha1.GPUPool{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "no-advertise-key"}, fetched)).To(Succeed())
+
+		Expect(fetched.Spec.Advertise.DRA).NotTo(BeNil(), "dra was not defaulted")
+		Expect(*fetched.Spec.Advertise.DRA).To(BeTrue())
+		Expect(fetched.Spec.Advertise.ExtendedResource).NotTo(BeNil(), "extendedResource was not defaulted")
+		Expect(*fetched.Spec.Advertise.ExtendedResource).To(BeTrue())
+	})
+
+	// The mirror image: an explicit false must survive defaulting. With a plain
+	// bool and omitempty, false serialized as absent and came straight back as
+	// true, making the field impossible to turn off from any Go client.
+	It("preserves an explicitly disabled advertise path", func() {
+		off := &ghostgpuv1alpha1.GPUPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "dra-off"},
+			Spec: ghostgpuv1alpha1.GPUPoolSpec{
+				ModelRef:    modelName,
+				GPUsPerNode: 2,
+				Advertise:   ghostgpuv1alpha1.AdvertiseSpec{DRA: ptr.To(false)},
+			},
+		}
+		Expect(k8sClient.Create(ctx, off)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, off))).To(Succeed())
+		})
+
+		fetched := &ghostgpuv1alpha1.GPUPool{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "dra-off"}, fetched)).To(Succeed())
+
+		Expect(fetched.Spec.Advertise.DRAEnabled()).To(BeFalse(), "explicit dra=false was defaulted back to true")
+		Expect(fetched.Spec.Advertise.ExtendedResourceEnabled()).To(BeTrue(), "the other path should still default")
 	})
 
 	It("defaults the model vendor to nvidia", func() {

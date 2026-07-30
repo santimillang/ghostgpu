@@ -25,6 +25,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -47,6 +48,11 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	// DRA is GA in resource.k8s.io/v1 but is not part of the client-go scheme,
+	// so ResourceSlice must be registered explicitly or the manager's cache
+	// cannot watch the objects this operator publishes.
+	utilruntime.Must(resourcev1.AddToScheme(scheme))
 
 	utilruntime.Must(ghostgpuv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme

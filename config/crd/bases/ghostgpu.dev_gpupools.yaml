@@ -56,8 +56,14 @@ spec:
             description: spec defines the desired state of GPUPool
             properties:
               advertise:
-                description: AdvertiseSpec selects how simulated GPUs are exposed
-                  to the cluster.
+                default: {}
+                description: |-
+                  advertise selects which resource models this pool publishes.
+
+                  Defaulted to an empty object so that a manifest omitting the key still
+                  receives the nested field defaults. Without it, the API server has no
+                  object to default into and both paths silently resolve to false, leaving
+                  the pool advertising nothing at all.
                 properties:
                   dra:
                     default: true
