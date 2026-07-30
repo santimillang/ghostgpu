@@ -82,12 +82,13 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	logger := logf.FromContext(ctx)
 
 	var pool ghostgpuv1alpha1.GPUPool
-	if err := r.Get(ctx, req.NamespacedName, &pool); err != nil {
+	err := r.Get(ctx, req.NamespacedName, &pool)
+	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	var model ghostgpuv1alpha1.GPUModel
-	if err := r.Get(ctx, client.ObjectKey{Name: pool.Spec.ModelRef}, &model); err != nil {
+	if err = r.Get(ctx, client.ObjectKey{Name: pool.Spec.ModelRef}, &model); err != nil {
 		if apierrors.IsNotFound(err) {
 			// A dangling modelRef is a user error. Reporting it on status is
 			// more useful than returning an error, which would only retry a
@@ -102,8 +103,10 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// A pool asking for MIG on a model that cannot be partitioned is a user
 	// error the API server cannot catch: it spans two objects. Surface it on
 	// status rather than publishing a pool that simulates nothing.
+	var table mig.Table
 	if pool.Spec.MIGEnabled() {
-		if _, err := mig.Resolve(&model); err != nil {
+		table, err = mig.Resolve(&model)
+		if err != nil {
 			setReady(&pool, metav1.ConditionFalse, "MIGProfilesInvalid", err.Error())
 			return ctrl.Result{}, r.Status().Update(ctx, &pool)
 		}
@@ -129,11 +132,11 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		matched++
 
 		if pool.Spec.Advertise.DRAEnabled() {
-			if err := r.reconcileSlice(ctx, &pool, &model, node.Name); err != nil {
+			published, err := r.reconcileSlices(ctx, &pool, &model, table, node.Name, live)
+			if err != nil {
 				return ctrl.Result{}, err
 			}
-			live[gpu.SliceName(pool.Name, node.Name)] = struct{}{}
-			devices += pool.Spec.GPUsPerNode
+			devices += published
 		}
 
 		if err := r.reconcileNode(ctx, &pool, &model, node); err != nil {
@@ -141,6 +144,9 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// Pruning matters more under MIG than it ever did for whole GPUs. Switching
+	// sharing modes replaces every slice with differently named ones, so
+	// anything left behind keeps advertising devices that no longer exist.
 	if err := r.pruneSlices(ctx, &pool, live); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -148,23 +154,60 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	pool.Status.ObservedGeneration = pool.Generation
 	pool.Status.NodesMatched = matched
 	pool.Status.DevicesPublished = devices
-	setReady(&pool, metav1.ConditionTrue, "Reconciled",
-		fmt.Sprintf("simulated %d GPUs across %d nodes", devices, matched))
+	pool.Status.MIGProfilesPublished = int32(len(table.Profiles))
+	setReady(&pool, metav1.ConditionTrue, "Reconciled", summarize(&pool, devices, matched, table))
 
 	return ctrl.Result{}, r.Status().Update(ctx, &pool)
 }
 
-// reconcileSlice creates or updates the ResourceSlice advertising one node's
-// GPUs. BuildResourceSlice is a pure function, so an unchanged pool produces an
-// identical spec and CreateOrUpdate issues no write.
-func (r *GPUPoolReconciler) reconcileSlice(
+func summarize(pool *ghostgpuv1alpha1.GPUPool, devices, matched int32, table mig.Table) string {
+	if pool.Spec.MIGEnabled() {
+		return fmt.Sprintf("simulated %d MIG instances across %d nodes (%d profiles per GPU)",
+			devices, matched, len(table.Profiles))
+	}
+	return fmt.Sprintf("simulated %d GPUs across %d nodes", devices, matched)
+}
+
+// reconcileSlices publishes one node's DRA slices and records their names as
+// live, returning how many devices they advertise.
+//
+// The whole-GPU and MIG layouts are mutually exclusive: a card offered both
+// whole and in pieces at the same time could be allocated twice over.
+func (r *GPUPoolReconciler) reconcileSlices(
 	ctx context.Context,
 	pool *ghostgpuv1alpha1.GPUPool,
 	model *ghostgpuv1alpha1.GPUModel,
+	table mig.Table,
 	nodeName string,
-) error {
-	desired := gpu.BuildResourceSlice(pool, model, nodeName)
+	live map[string]struct{},
+) (int32, error) {
+	if !pool.Spec.MIGEnabled() {
+		if err := r.applySlice(ctx, pool, gpu.BuildResourceSlice(pool, model, nodeName)); err != nil {
+			return 0, err
+		}
+		live[gpu.SliceName(pool.Name, nodeName)] = struct{}{}
+		return pool.Spec.GPUsPerNode, nil
+	}
 
+	var devices int32
+	for _, desired := range gpu.BuildMIGSlices(pool, model, table, nodeName) {
+		if err := r.applySlice(ctx, pool, desired); err != nil {
+			return 0, err
+		}
+		live[desired.Name] = struct{}{}
+		devices += int32(len(desired.Spec.Devices))
+	}
+	return devices, nil
+}
+
+// applySlice creates or updates one ResourceSlice. The builders are pure
+// functions, so an unchanged pool produces an identical spec and CreateOrUpdate
+// issues no write.
+func (r *GPUPoolReconciler) applySlice(
+	ctx context.Context,
+	pool *ghostgpuv1alpha1.GPUPool,
+	desired *resourcev1.ResourceSlice,
+) error {
 	slice := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: desired.Name}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, slice, func() error {
 		slice.Spec = desired.Spec
