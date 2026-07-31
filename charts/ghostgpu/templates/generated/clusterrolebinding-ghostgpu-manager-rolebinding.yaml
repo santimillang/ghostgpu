@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: ghostgpu
+  name: ghostgpu-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ghostgpu-manager-role
+subjects:
+- kind: ServiceAccount
+  name: ghostgpu-controller-manager
+  namespace: {{ .Release.Namespace }}

@@ -1,0 +1,19 @@
+# The Helm chart is generated from this overlay rather than hand-written, so it
+# cannot drift from install.yaml. The two sentinels below are replaced with Helm
+# template expressions by hack/gen-chart.sh.
+#
+# They are deliberately long and unique. This repo has produced four bugs from
+# scripted literal replacement that also rewrote a declaration it was meant to
+# leave alone; a string that appears nowhere else is the defense.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../default
+
+namespace: ghostgpu-helm-release-namespace-sentinel
+
+images:
+  - name: controller
+    newName: ghostgpu-helm-image-sentinel
+    newTag: sentinel
