@@ -44,6 +44,7 @@ type PoolStatus struct {
 	Devices   int32
 	Allocated int
 	Occupied  int
+	Faulted   int
 }
 
 // DeviceStatus is one published device and who holds it.
@@ -63,6 +64,11 @@ type DeviceStatus struct {
 	// spec's — and reporting occupancy as an allocation would invent a holder
 	// that does not exist.
 	Occupied bool
+
+	// Faulted means ghostgpu declared the hardware failed. A third state
+	// again: a broken GPU is not merely busy, and conflating the two would
+	// misreport why a workload cannot be placed.
+	Faulted bool
 
 	Pod       string
 	Namespace string
@@ -182,10 +188,14 @@ func summarisePools(
 	// gpusOccupied, which counts physical cards. Under MIG one occupied card is
 	// many unavailable devices, and this column is about devices.
 	occupied := map[string]int{}
+	faulted := map[string]int{}
 	for i := range published {
 		slice := &published[i]
 		for _, d := range slice.Spec.Devices {
-			if isOccupied(d) {
+			switch {
+			case isFaulted(d):
+				faulted[slice.Labels[poolLabel]]++
+			case isOccupied(d):
 				occupied[slice.Labels[poolLabel]]++
 			}
 		}
@@ -205,6 +215,7 @@ func summarisePools(
 			Devices:   p.Status.DevicesPublished,
 			Allocated: counts[p.Name],
 			Occupied:  occupied[p.Name],
+			Faulted:   faulted[p.Name],
 		})
 	}
 
@@ -230,6 +241,7 @@ func describeDevices(
 				Device:    d.Name,
 				Allocated: held,
 				Occupied:  isOccupied(d),
+				Faulted:   isFaulted(d),
 				Pod:       holder.pod,
 				Namespace: holder.namespace,
 			}
@@ -317,8 +329,17 @@ func describeGPUs(
 // Read from the device's own taints rather than from the pool spec, so that
 // what is reported is what the scheduler is actually acting on.
 func isOccupied(device resourcev1.Device) bool {
+	return hasTaint(device, gpu.OccupiedTaintKey)
+}
+
+// isFaulted reports whether ghostgpu declared this device's hardware failed.
+func isFaulted(device resourcev1.Device) bool {
+	return hasTaint(device, gpu.FaultedTaintKey)
+}
+
+func hasTaint(device resourcev1.Device, key string) bool {
 	for _, taint := range device.Taints {
-		if taint.Key == gpu.OccupiedTaintKey {
+		if taint.Key == key {
 			return true
 		}
 	}
@@ -341,15 +362,16 @@ func table(write func(*tabwriter.Writer)) string {
 // RenderPools renders the per-pool summary.
 func RenderPools(report Report) string {
 	return table(func(w *tabwriter.Writer) {
-		_, _ = fmt.Fprintln(w, "POOL\tMODE\tNODES\tDEVICES\tOCCUPIED\tALLOCATED\tFREE")
+		_, _ = fmt.Fprintln(w, "POOL\tMODE\tNODES\tDEVICES\tFAULTED\tOCCUPIED\tALLOCATED\tFREE")
 		for _, p := range report.Pools {
-			// Occupied devices were never available, so they are subtracted
-			// from free alongside the allocated ones. Reporting them as free
-			// would describe a fleet with more room than the scheduler sees.
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n",
+			// Faulted and occupied devices were never available, so both are
+			// subtracted from free alongside the allocated ones. Reporting
+			// either as free would describe a fleet with more room than the
+			// scheduler can see.
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\n",
 				p.Name, p.Mode, p.Nodes, p.Devices,
-				p.Occupied, p.Allocated,
-				max(0, int(p.Devices)-p.Allocated-p.Occupied))
+				p.Faulted, p.Occupied, p.Allocated,
+				max(0, int(p.Devices)-p.Allocated-p.Occupied-p.Faulted))
 		}
 	})
 }
@@ -379,6 +401,11 @@ func RenderDevices(report Report, node string) string {
 				if d.Pod != "" {
 					holder = d.Namespace + "/" + d.Pod
 				}
+			case d.Faulted:
+				// Checked before occupied: a failed GPU is not merely busy, and
+				// reporting it as busy would hide why nothing can be placed.
+				status = "faulted"
+				holder = "(failed)"
 			case d.Occupied:
 				// No holder, because there is no pod: this device was declared
 				// busy by the pool. Naming a fake holder would be a lie about

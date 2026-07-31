@@ -76,20 +76,19 @@ func intAttr(i int64) resourcev1.DeviceAttribute {
 // MaxDevicesPerSlice, avoiding the sharding that a cluster-wide pool would
 // eventually force.
 //
-// busy is how many of the node's GPUs are declared already occupied. The first
-// that many carry a device taint, lowest index first, so that the same
-// declaration always produces the same fragmentation rather than one that
-// depends on iteration order.
+// state is what the pool declares about this node's GPUs — how many are busy,
+// and how many have failed. Both are applied lowest index first, so the same
+// declaration always produces the same fleet rather than one that depends on
+// iteration order.
 //
-// The result is a pure function of its inputs: the same pool, model, node, and
-// occupancy always produce an identical slice, so a restarted operator
+// The result is a pure function of its inputs, so a restarted operator
 // republishes rather than churns — which is also what makes declared occupancy
-// survive a restart, the property issue #25 asked for.
+// and declared faults survive a restart.
 func BuildResourceSlice(
 	pool *v1alpha1.GPUPool,
 	model *v1alpha1.GPUModel,
 	nodeName string,
-	busy int32,
+	state NodeState,
 ) *resourcev1.ResourceSlice {
 	devices := make([]resourcev1.Device, 0, pool.Spec.GPUsPerNode)
 
@@ -117,8 +116,8 @@ func BuildResourceSlice(
 				"memory": {Value: model.Spec.Memory},
 			},
 		}
-		if i < busy {
-			device.Taints = []resourcev1.DeviceTaint{OccupiedTaint()}
+		if taint := state.Taint(i); taint != nil {
+			device.Taints = []resourcev1.DeviceTaint{*taint}
 		}
 		devices = append(devices, device)
 	}

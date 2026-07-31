@@ -150,7 +150,7 @@ func TestBuildResourceSliceTaintsOccupiedDevices(t *testing.T) {
 	pool.Spec.GPUsPerNode = 4
 	model := &v1alpha1.GPUModel{Spec: v1alpha1.GPUModelSpec{ProductName: "H100", Vendor: "nvidia"}}
 
-	slice := BuildResourceSlice(pool, model, "node-a", 3)
+	slice := BuildResourceSlice(pool, model, "node-a", NodeState{Busy: 3})
 
 	if len(slice.Spec.Devices) != 4 {
 		t.Fatalf("published %d devices, want all 4 — occupancy hides devices, it does not delete them",
@@ -184,7 +184,7 @@ func TestBuildMIGSlicesTaintsEveryInstanceOfAnOccupiedGPU(t *testing.T) {
 	}
 
 	perGPU := map[int]struct{ tainted, total int }{}
-	for _, slice := range BuildMIGSlices(pool, model, table, "node-a", 1) {
+	for _, slice := range BuildMIGSlices(pool, model, table, "node-a", NodeState{Busy: 1}) {
 		for _, device := range slice.Spec.Devices {
 			// Device names are gpu-<index>-<profile>, so the index is the card.
 			index := int(device.Name[len("gpu-")] - '0')
@@ -217,7 +217,7 @@ func TestNodeAllocatableSubtractsOccupancy(t *testing.T) {
 	pool.Spec.GPUsPerNode = 8
 
 	capacity := NodeResources(pool, mig.Table{})
-	allocatable := NodeAllocatable(pool, mig.Table{}, 6)
+	allocatable := NodeAllocatable(pool, mig.Table{}, NodeState{Busy: 6})
 
 	if got := capacity[GPUResourceName]; got.Value() != 8 {
 		t.Errorf("capacity = %d, want the hardware's full 8", got.Value())
@@ -247,7 +247,7 @@ func TestNodeAllocatableKeepsResourcesAtZero(t *testing.T) {
 	}
 
 	capacity := NodeResources(pool, table)
-	allocatable := NodeAllocatable(pool, table, 2)
+	allocatable := NodeAllocatable(pool, table, NodeState{Busy: 2})
 
 	name := MIGResourceName(profileSmallest)
 	if got, ok := capacity[name]; !ok || got.Value() != 8 {
