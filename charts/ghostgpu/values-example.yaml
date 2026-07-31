@@ -3,7 +3,7 @@
 gpuModels:
   - name: h100
     spec:
-      productName: NVIDIA H100 80GB HBM3
+      productName: NVIDIA-H100-80GB-HBM3
       memory: 80Gi
       computeCapability: "9.0"
 
