@@ -1,0 +1,765 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: gpupools.ghostgpu.dev
+spec:
+  group: ghostgpu.dev
+  names:
+    kind: GPUPool
+    listKind: GPUPoolList
+    plural: gpupools
+    singular: gpupool
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.modelRef
+      name: Model
+      type: string
+    - jsonPath: .spec.gpusPerNode
+      name: Per Node
+      type: integer
+    - jsonPath: .status.nodesMatched
+      name: Nodes
+      type: integer
+    - jsonPath: .status.devicesPublished
+      name: Devices
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: GPUPool is the Schema for the gpupools API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object.
+
+              Servers should convert recognized schemas to the latest internal value,
+              and
+
+              may reject unrecognized values.
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents.
+
+              Servers may infer this from the endpoint the client submits requests
+              to.
+
+              Cannot be updated.
+
+              In CamelCase.
+
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of GPUPool
+            properties:
+              advertise:
+                default: {}
+                description: 'advertise selects which resource models this pool publishes.
+
+
+                  Defaulted to an empty object so that a manifest omitting the key
+                  still
+
+                  receives the nested field defaults. Without it, the API server has
+                  no
+
+                  object to default into and both paths silently resolve to false,
+                  leaving
+
+                  the pool advertising nothing at all.'
+                properties:
+                  dra:
+                    default: true
+                    description: 'dra publishes DRA ResourceSlices. This is the primary
+                      path: the
+
+                      scheduler records exact device identity in ResourceClaim.status,
+                      so no
+
+                      separate pod-to-GPU binding store is needed.'
+                    type: boolean
+                  extendedResource:
+                    default: true
+                    description: 'extendedResource patches node status with nvidia.com/gpu
+                      for consumers
+
+                      that predate DRA. Compatibility only: a scalar resource cannot
+                      express
+
+                      which GPU was assigned to which pod.'
+                    type: boolean
+                type: object
+              faults:
+                description: "faults declares GPUs that have failed.\n\nHardware failure\
+                  \ is one of the hardest things to test for, because it\ncannot be\
+                  \ arranged on demand: you cannot ask a production GPU to fall off\n\
+                  the bus to see whether your remediation drains the node. Declaring\
+                  \ it\nmakes that scenario reproducible.\n\nFaults and occupancy\
+                  \ are independent declarations, both applied\nlowest-index-first,\
+                  \ and a fault wins where they overlap \u2014 so \"three busy,\n\
+                  one faulted\" means the failure happened to a GPU that was working."
+                items:
+                  description: FaultEntry declares failed GPUs on matching nodes.
+                  properties:
+                    effect:
+                      default: Evict
+                      description: effect is what the failure does to work on the
+                        GPU.
+                      enum:
+                      - Evict
+                      - Unschedulable
+                      type: string
+                    gpus:
+                      description: 'gpus is how many of each matching node''s physical
+                        GPUs have failed,
+
+                        counted from the lowest index so a scenario is reproducible.
+
+
+                        Under sharingMode "mig" this counts whole cards, as occupancy
+                        does:
+
+                        every instance carved from a failed GPU fails with it, because
+                        they are
+
+                        the same silicon.'
+                      format: int32
+                      maximum: 128
+                      minimum: 0
+                      type: integer
+                    nodeSelector:
+                      additionalProperties:
+                        type: string
+                      description: 'nodeSelector chooses which of the pool''s nodes
+                        this entry applies to.
+
+                        Empty matches every node in the pool.'
+                      type: object
+                    xid:
+                      description: 'xid is the NVIDIA XID error code to report on
+                        DCGM_FI_DEV_XID_ERRORS for
+
+                        the failed GPUs, which is the signal most remediation tooling
+                        watches.
+
+                        79 is "GPU has fallen off the bus"; 48 is a double-bit ECC
+                        error.
+
+
+                        Zero reports no error, which models a GPU that has been taken
+                        out of
+
+                        service without the driver having logged anything.'
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - gpus
+                  type: object
+                type: array
+              gpusPerNode:
+                description: 'gpusPerNode is how many simulated GPUs each matching
+                  node receives.
+
+                  Capped at 128 to stay within the DRA per-ResourceSlice device limit.'
+                format: int32
+                maximum: 128
+                minimum: 1
+                type: integer
+              migPartition:
+                description: "migPartition declares which MIG instances actually exist\
+                  \ on each GPU.\n\nLeave it empty to model *dynamic* MIG, as NVIDIA's\
+                  \ DRA driver does: every\nprofile the hardware supports is advertised\
+                  \ and the scheduler picks,\nwith the shared counters preventing\
+                  \ overlapping choices.\n\nSet it to model *static* MIG, as the device\
+                  \ plugin does: the instances\nbelow are the only ones that exist,\
+                  \ exactly as though an administrator\nhad created them with `nvidia-smi\
+                  \ mig -cgi`. This is what makes the\nlegacy extended-resource path\
+                  \ exact rather than approximate \u2014 the\nper-profile counts then\
+                  \ sum to something the hardware can actually\nsatisfy, because that\
+                  \ is genuinely all there is.\n\nThe declared instances must fit\
+                  \ one GPU's budget."
+                items:
+                  description: MIGPartitionEntry is how many instances of one profile
+                    each GPU carries.
+                  properties:
+                    count:
+                      description: count is how many instances of this profile exist
+                        per physical GPU.
+                      format: int32
+                      maximum: 8
+                      minimum: 1
+                      type: integer
+                    profile:
+                      description: profile names a MIG profile the GPU's model supports.
+                      pattern: ^[0-9]+g\.[0-9]+gb$
+                      type: string
+                  required:
+                  - count
+                  - profile
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - profile
+                x-kubernetes-list-type: map
+              modelRef:
+                description: modelRef names the GPUModel describing this pool's hardware.
+                minLength: 1
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: 'nodeSelector chooses which nodes receive simulated GPUs.
+                  Only
+
+                  kwok-managed nodes are ever modified, regardless of what this matches.'
+                type: object
+              occupancy:
+                description: "occupancy declares how much of the fleet is already\
+                  \ busy before any\nworkload is submitted.\n\nMost interesting GPU\
+                  \ scheduling bugs are about fragmentation rather than\ncapacity\
+                  \ \u2014 \"seven GPUs are free but spread 2/2/2/1 across four nodes;\n\
+                  does my four-GPU job schedule?\" \u2014 and that situation cannot\
+                  \ be built by\nsubmitting filler pods, because where the filler\
+                  \ lands is the scheduler's\nchoice and so the scenario under test\
+                  \ is not reproducible.\n\nEntries are matched first-match-wins,\
+                  \ so a list expresses a fleet that is\nunevenly full. An entry with\
+                  \ no selector matches every node, which makes\nit a default when\
+                  \ placed last."
+                items:
+                  description: OccupancyEntry declares how many GPUs are already busy
+                    on matching nodes.
+                  properties:
+                    busyPerNode:
+                      description: "busyPerNode is how many of each matching node's\
+                        \ physical GPUs are\nalready occupied. It must not exceed\
+                        \ gpusPerNode.\n\nUnder sharingMode \"mig\" this still counts\
+                        \ whole cards: every instance\ncarved from an occupied GPU\
+                        \ becomes unavailable. Anything else would be\nwrong rather\
+                        \ than merely simpler, because MIG instances draw on shared\n\
+                        counters \u2014 leaving one profile allocatable on an \"occupied\"\
+                        \ card would\nmean the card was not occupied at all."
+                      format: int32
+                      maximum: 128
+                      minimum: 0
+                      type: integer
+                    nodeSelector:
+                      additionalProperties:
+                        type: string
+                      description: 'nodeSelector chooses which of the pool''s nodes
+                        this entry applies to.
+
+                        Empty matches every node in the pool.'
+                      type: object
+                  required:
+                  - busyPerNode
+                  type: object
+                type: array
+              sharingMode:
+                default: none
+                description: 'sharingMode is how each physical GPU is divided.
+
+
+                  "none" advertises whole GPUs. "mig" partitions each GPU into MIG
+
+                  instances drawn from a shared compute-slice and memory budget, so
+
+                  overlapping profiles on one GPU are mutually exclusive.
+
+
+                  Unlike advertise, this is safe as a plain string: its zero value
+                  and its
+
+                  default are the same, so an omitted key and an explicit "none" are
+
+                  indistinguishable by design rather than by accident.'
+                enum:
+                - none
+                - mig
+                type: string
+              topology:
+                description: 'TopologySpec describes simulated interconnect structure.
+
+
+                  Structure only. Bandwidth and latency are deliberately not simulated:
+                  no
+
+                  scheduler in the ecosystem consumes them today, and modeling them
+                  would add
+
+                  significant complexity for no testing value.'
+                properties:
+                  numaAware:
+                    description: numaAware emits a NUMA node attribute per simulated
+                      device.
+                    type: boolean
+                  nvlinkDomainSize:
+                    description: 'nvlinkDomainSize is how many GPUs share an NVLink
+                      domain. 0 omits domain
+
+                      attributes entirely.'
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
+              utilization:
+                description: "utilization declares what a simulated GPU reports through\
+                  \ the\nDCGM-shaped metrics endpoint.\n\nDeclared rather than randomised\
+                  \ on purpose. A metric that jitters cannot\nbe asserted against,\
+                  \ and the point of these numbers is to drive a rule\nunder test\
+                  \ \u2014 \"scale down when utilization stays below 20% for ten\n\
+                  minutes\" is only testable if the fleet reliably does that."
+                properties:
+                  whenAllocated:
+                    description: 'whenAllocated is reported by a GPU the scheduler
+                      has given to a pod, and
+
+                      by one declared occupied. Defaults to fully busy.'
+                    properties:
+                      fbUsedPercent:
+                        description: 'fbUsedPercent is how much of the framebuffer
+                          is in use. Reported as
+
+                          DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived
+                          from the
+
+                          GPU''s own memory so the two always sum to it.'
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      gpuUtil:
+                        description: gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      grEngineActivePercent:
+                        description: 'grEngineActivePercent becomes the 0-1 ratio
+                          DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+
+                          Expressed as a percentage because a percentage is far easier
+                          to write and
+
+                          read in a manifest than a fraction.'
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      memCopyUtil:
+                        description: memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      powerWatts:
+                        description: 'powerWatts is reported as DCGM_FI_DEV_POWER_USAGE.
+                          Omitted entirely when
+
+                          unset rather than guessed.'
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      temperatureC:
+                        description: 'temperatureC is reported as DCGM_FI_DEV_GPU_TEMP.
+                          Omitted entirely when
+
+                          unset rather than guessed.'
+                        format: int32
+                        type: integer
+                      tensorActivePercent:
+                        description: tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                    type: object
+                  whenIdle:
+                    description: 'whenIdle is reported by a GPU nothing holds. Defaults
+                      to zero, which is
+
+                      what an idle GPU genuinely draws in every field ghostgpu models.'
+                    properties:
+                      fbUsedPercent:
+                        description: 'fbUsedPercent is how much of the framebuffer
+                          is in use. Reported as
+
+                          DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived
+                          from the
+
+                          GPU''s own memory so the two always sum to it.'
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      gpuUtil:
+                        description: gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      grEngineActivePercent:
+                        description: 'grEngineActivePercent becomes the 0-1 ratio
+                          DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+
+                          Expressed as a percentage because a percentage is far easier
+                          to write and
+
+                          read in a manifest than a fraction.'
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      memCopyUtil:
+                        description: memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      powerWatts:
+                        description: 'powerWatts is reported as DCGM_FI_DEV_POWER_USAGE.
+                          Omitted entirely when
+
+                          unset rather than guessed.'
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      temperatureC:
+                        description: 'temperatureC is reported as DCGM_FI_DEV_GPU_TEMP.
+                          Omitted entirely when
+
+                          unset rather than guessed.'
+                        format: int32
+                        type: integer
+                      tensorActivePercent:
+                        description: tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                    type: object
+                  workloads:
+                    description: 'workloads override whenAllocated for GPUs held by
+                      matching pods.
+
+
+                      This is what makes a fleet heterogeneous, and heterogeneity
+                      is the whole
+
+                      fixture that idle-GPU reclamation and utilization-based preemption
+                      need:
+
+                      the question those tools answer is which of several jobs is
+                      wasting its
+
+                      GPU, and a fleet where every allocated card reports the same
+                      number
+
+                      cannot ask it.
+
+
+                      Entries are first-match-wins, so ordering is meaningful and
+                      an entry with
+
+                      an empty selector reads as a default when placed last.'
+                    items:
+                      description: WorkloadUtilization is what GPUs held by matching
+                        pods report.
+                      properties:
+                        fbUsedPercent:
+                          description: 'fbUsedPercent is how much of the framebuffer
+                            is in use. Reported as
+
+                            DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived
+                            from the
+
+                            GPU''s own memory so the two always sum to it.'
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        gpuUtil:
+                          description: gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        grEngineActivePercent:
+                          description: 'grEngineActivePercent becomes the 0-1 ratio
+                            DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+
+                            Expressed as a percentage because a percentage is far
+                            easier to write and
+
+                            read in a manifest than a fraction.'
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        memCopyUtil:
+                          description: memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        podSelector:
+                          description: 'podSelector chooses the pods this entry applies
+                            to. An empty selector
+
+                            matches every pod.'
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: 'A label selector requirement is a selector
+                                  that contains values, a key, and an operator that
+
+                                  relates the key and values.'
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: 'operator represents a key''s relationship
+                                      to a set of values.
+
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.'
+                                    type: string
+                                  values:
+                                    description: 'values is an array of string values.
+                                      If the operator is In or NotIn,
+
+                                      the values array must be non-empty. If the operator
+                                      is Exists or DoesNotExist,
+
+                                      the values array must be empty. This array is
+                                      replaced during a strategic
+
+                                      merge patch.'
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: 'matchLabels is a map of {key,value} pairs.
+                                A single {key,value} in the matchLabels
+
+                                map is equivalent to an element of matchExpressions,
+                                whose key field is "key", the
+
+                                operator is "In", and the values array contains only
+                                "value". The requirements are ANDed.'
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        powerWatts:
+                          description: 'powerWatts is reported as DCGM_FI_DEV_POWER_USAGE.
+                            Omitted entirely when
+
+                            unset rather than guessed.'
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        temperatureC:
+                          description: 'temperatureC is reported as DCGM_FI_DEV_GPU_TEMP.
+                            Omitted entirely when
+
+                            unset rather than guessed.'
+                          format: int32
+                          type: integer
+                        tensorActivePercent:
+                          description: tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                      type: object
+                    type: array
+                type: object
+            required:
+            - gpusPerNode
+            - modelRef
+            type: object
+          status:
+            description: status defines the observed state of GPUPool
+            properties:
+              conditions:
+                description: 'conditions represent the current state of the GPUPool
+                  resource.
+
+                  Each condition has a unique type and reflects the status of a specific
+                  aspect of the resource.
+
+
+                  Standard condition types include:
+
+                  - "Available": the resource is fully functional
+
+                  - "Progressing": the resource is being created or updated
+
+                  - "Degraded": the resource failed to reach or maintain its desired
+                  state
+
+
+                  The status of each condition is one of True, False, or Unknown.'
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: 'lastTransitionTime is the last time the condition
+                        transitioned from one status to another.
+
+                        This should be when the underlying condition changed.  If
+                        that is not known, then using the time when the API field
+                        changed is acceptable.'
+                      format: date-time
+                      type: string
+                    message:
+                      description: 'message is a human readable message indicating
+                        details about the transition.
+
+                        This may be an empty string.'
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: 'observedGeneration represents the .metadata.generation
+                        that the condition was set based upon.
+
+                        For instance, if .metadata.generation is currently 12, but
+                        the .status.conditions[x].observedGeneration is 9, the condition
+                        is out of date
+
+                        with respect to the current state of the instance.'
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: 'reason contains a programmatic identifier indicating
+                        the reason for the condition''s last transition.
+
+                        Producers of specific condition types may define expected
+                        values and meanings for this field,
+
+                        and whether the values are considered a guaranteed API.
+
+                        The value should be a CamelCase string.
+
+                        This field may not be empty.'
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - 'True'
+                      - 'False'
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              devicesPublished:
+                description: 'devicesPublished is the total number of DRA devices
+                  advertised across all
+
+                  matched nodes. Under sharingMode "none" that is one per simulated
+                  GPU;
+
+                  under "mig" it is one per MIG instance, so it counts instances rather
+
+                  than cards.'
+                format: int32
+                type: integer
+              gpusFaulted:
+                description: 'gpusFaulted is how many physical GPUs across all matched
+                  nodes this pool
+
+                  has declared failed.'
+                format: int32
+                type: integer
+              gpusOccupied:
+                description: 'gpusOccupied is how many physical GPUs across all matched
+                  nodes this
+
+                  pool has declared busy, and so how much of the fleet was never available
+
+                  in the first place.
+
+
+                  Reported separately from devicesPublished because the two answer
+
+                  different questions: how much hardware exists, and how much of it
+                  a
+
+                  workload could actually have.'
+                format: int32
+                type: integer
+              migProfilesPublished:
+                description: 'migProfilesPublished is how many MIG profiles each simulated
+                  GPU is
+
+                  partitioned into. Zero when the pool does not use MIG.
+
+
+                  Reported separately because devicesPublished alone cannot distinguish
+
+                  "many cards" from "few cards, finely divided", and those behave
+                  very
+
+                  differently under a scheduler.'
+                format: int32
+                type: integer
+              nodesMatched:
+                description: nodesMatched is how many simulated nodes this pool currently
+                  manages.
+                format: int32
+                type: integer
+              observedGeneration:
+                description: observedGeneration is the .metadata.generation this status
+                  reflects.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

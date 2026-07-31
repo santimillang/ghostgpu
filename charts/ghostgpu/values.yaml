@@ -1,0 +1,27 @@
+image:
+  repository: ghcr.io/santimillang/ghostgpu
+  # Defaults to the chart's appVersion, so the chart and the operator it
+  # deploys stay in step unless deliberately overridden.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Fleets declared here are rendered verbatim into GPUModel and GPUPool objects.
+# `spec` is passed through untouched: the CRD's OpenAPI schema is the validator,
+# and a copy of it here would be a second API to keep in sync with the first.
+#
+# gpuModels:
+#   - name: h100
+#     spec:
+#       productName: NVIDIA H100 80GB HBM3
+#       memory: 80Gi
+#       computeCapability: "9.0"
+#
+# gpuPools:
+#   - name: h100-pool
+#     spec:
+#       modelRef: h100
+#       gpusPerNode: 8
+#       occupancy:
+#         - busyPerNode: 2
+gpuModels: []
+gpuPools: []

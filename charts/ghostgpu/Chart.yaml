@@ -1,0 +1,15 @@
+apiVersion: v2
+name: ghostgpu
+description: Simulate GPU clusters on Kubernetes — test GPU-aware schedulers with zero GPU hardware
+type: application
+# version is the chart's own version; appVersion is the ghostgpu release it
+# deploys. Both are rewritten by the release workflow from the tag.
+version: 0.0.0-dev
+appVersion: 0.0.0-dev
+home: https://github.com/santimillang/ghostgpu
+sources:
+  - https://github.com/santimillang/ghostgpu
+keywords: [kubernetes, gpu, dra, kwok, scheduler, simulation, testing]
+maintainers:
+  - name: santimillang
+    url: https://github.com/santimillang
