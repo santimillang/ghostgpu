@@ -1,0 +1,121 @@
+# Publishes a release: a multi-arch image and a single-file installer.
+#
+# The two together are what make the quickstart honest. Until now the only way
+# to run ghostgpu was to clone it and build, which is a wall for anyone
+# evaluating it in the ten minutes they have.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Buildable on demand without tagging, so the workflow itself can be verified
+  # before it is trusted with a real release.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. v0.1.0-test"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Multi-arch because a good share of the people who would evaluate a
+      # laptop-scale simulator are on arm64 Macs.
+      - name: Build and push the manager image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      # Pinned to the immutable tag rather than :latest, so an installer
+      # downloaded today keeps deploying the version it was built against.
+      - name: Generate the installer
+        run: |
+          make build-installer \
+            IMG=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+
+      # Deliberately not `kubectl apply --dry-run=client`: that needs to reach an
+      # API server to resolve resource kinds, so with no cluster here it fails
+      # on every document regardless of whether the file is good. A parse plus a
+      # check that the pieces are present is what can honestly be verified
+      # offline; the installer is exercised for real by the e2e job.
+      - name: Check the installer parses and is complete
+        run: |
+          python3 - <<'PY'
+          import sys, yaml
+
+          docs = [d for d in yaml.safe_load_all(open("dist/install.yaml")) if d]
+          kinds = [d.get("kind") for d in docs]
+
+          print(f"{len(docs)} documents: {sorted(set(kinds))}")
+
+          for required in ("CustomResourceDefinition", "Deployment", "ServiceAccount", "ClusterRole"):
+              if required not in kinds:
+                  sys.exit(f"installer is missing a {required}")
+
+          if kinds.count("CustomResourceDefinition") != 2:
+              sys.exit("expected both the GPUModel and GPUPool CRDs")
+          PY
+
+      - name: Publish the release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/install.yaml
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            ```sh
+            kubectl apply -f https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/install.yaml
+            ```
+
+            ghostgpu only ever modifies nodes carrying kwok's
+            `kwok.x-k8s.io/node` annotation, so it is safe to install in a
+            cluster that also contains real GPU hardware.
+
+      - name: Upload the installer for a dry run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: install.yaml
+          path: dist/install.yaml
