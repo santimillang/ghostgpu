@@ -48,3 +48,36 @@ jobs:
 
       - name: Assert the chart and the installer agree
         run: go test -tags=chart ./test/chart/ -v
+
+  chart-install:
+    permissions:
+      contents: read
+    name: chart-install
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Pinned deliberately, as in the e2e workflow: this asserts behaviour of
+      # real upstream components, so drift must surface as a tracked change.
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.32.0/kind-linux-$(go env GOARCH)
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Install kwokctl
+        run: |
+          curl -Lo ./kwokctl https://github.com/kubernetes-sigs/kwok/releases/download/v0.8.0/kwokctl-linux-$(go env GOARCH)
+          chmod +x ./kwokctl
+          sudo mv ./kwokctl /usr/local/bin/kwokctl
+
+      - name: Install the chart into a live cluster
+        run: make test-helm

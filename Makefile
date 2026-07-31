@@ -128,6 +128,13 @@ test-e2e: setup-test-e2e manifests generate fmt vet build-cli ## Run the e2e tes
 cleanup-test-e2e: ## Tear down the kwok cluster used for e2e tests
 	@$(KWOKCTL) delete cluster --name $(KWOK_CLUSTER)
 
+.PHONY: test-helm
+test-helm: setup-test-e2e helm helm-tool ## Install the chart into a live cluster and assert it works.
+	$(MAKE) docker-build IMG=example.com/ghostgpu:v0.0.1
+	$(KIND) load docker-image example.com/ghostgpu:v0.0.1 --name $(KIND_CLUSTER)
+	HELM="$(HELM)" ./test/chart/install.sh
+	$(MAKE) cleanup-test-e2e
+
 .PHONY: build-cli
 build-cli: manifests generate fmt vet ## Build the ghostgpu CLI.
 	go build -ldflags "-X main.version=$(CLI_VERSION) -X main.commit=$(CLI_COMMIT) -X main.date=$(CLI_DATE)" -o bin/ghostgpu ./cmd/ghostgpu
