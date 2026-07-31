@@ -1,0 +1,43 @@
+# A job pinned to ghost-fail-0, the node whose GPUs the scenario fails.
+#
+# The pod's nodeSelector is what makes this deterministic. The claim itself does
+# not name a device — the scheduler picks — so the fault has to cover every GPU
+# on the node rather than a particular one. An unpinned job on an unpinned
+# device could be satisfied on hardware the fault never touches, and the demo
+# would prove nothing.
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  name: trainer-claim
+spec:
+  devices:
+    requests:
+      - name: gpu
+        exactly:
+          deviceClassName: ghostgpu-failure-example
+          count: 1
+          allocationMode: ExactCount
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: trainer
+  labels:
+    example: gpu-failure
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ghost-fail-0
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  containers:
+    - name: trainer
+      image: fake-trainer:latest
+      resources:
+        claims:
+          - name: gpu
+  resourceClaims:
+    - name: gpu
+      resourceClaimName: trainer-claim

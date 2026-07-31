@@ -200,6 +200,15 @@ The budget view answers the question that is genuinely tedious to work out by ha
 
 ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation. A node without it is never touched, whatever the pool selector matches — see [SECURITY.md](SECURITY.md).
 
+## Scenarios
+
+[`examples/`](examples) holds worked scenarios, each answering a question you
+might need to ask of your own tooling — a [fragmented fleet](examples/fragmented-fleet)
+that refuses a four-GPU job while seven GPUs are free, a [GPU failing under a
+running job](examples/gpu-failure), an [idle notebook squatting on a card](examples/idle-reclamation),
+and [MIG exclusivity](examples/mig-exclusivity). All of them are applied and
+checked by CI, so a scenario that stops working fails the build.
+
 ## Capabilities
 
 | Area | Status |

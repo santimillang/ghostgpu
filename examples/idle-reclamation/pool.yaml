@@ -1,0 +1,75 @@
+# One node, two GPUs, and two workload profiles.
+#
+# Readings are declared rather than randomised. A metric that jitters cannot be
+# asserted against, and the point of these numbers is to drive a rule under
+# test: "reclaim when utilisation stays low" is only testable if the fleet
+# reliably reports low utilisation.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: idle-h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: idle-demo
+spec:
+  modelRef: idle-h100
+  nodeSelector:
+    example: idle-reclamation
+  gpusPerNode: 2
+  utilization:
+    whenAllocated:
+      gpuUtil: 92
+      fbUsedPercent: 78
+      grEngineActivePercent: 88
+    workloads:
+      # Entries are first-match-wins and layer over whenAllocated, so this only
+      # states what makes the notebook different.
+      - podSelector:
+          matchLabels:
+            workload: notebook
+        gpuUtil: 3
+        fbUsedPercent: 91
+        grEngineActivePercent: 2
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-idle-example
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-idle-0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-idle-0
+    kubernetes.io/os: linux
+    example: idle-reclamation
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running

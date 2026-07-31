@@ -1,0 +1,66 @@
+# Two H100s, each offered as every MIG profile the card supports.
+#
+# No migPartition here, so this models *dynamic* MIG as NVIDIA's DRA driver
+# does: every profile is advertised and the scheduler picks, with shared
+# counters keeping overlapping choices apart. Declaring a partition instead
+# would model static MIG, where an administrator pre-created the instances.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: mig-h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: mig-demo
+spec:
+  modelRef: mig-h100
+  nodeSelector:
+    example: mig-exclusivity
+  # One card on purpose. With a spare, a claim the first job "should" contend
+  # with would simply be satisfied on the other GPU, and the scenario would pass
+  # while demonstrating nothing. Pinning both claims to one card by uuid would
+  # work too, but a uuid is a hash — not something to paste into an example.
+  gpusPerNode: 1
+  sharingMode: mig
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-mig-example
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-migdemo-0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-migdemo-0
+    kubernetes.io/os: linux
+    example: mig-exclusivity
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
