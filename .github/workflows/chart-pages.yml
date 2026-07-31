@@ -1,0 +1,29 @@
+# A classic Helm repository alongside the OCI one. OCI is the modern path, but
+# plenty of tooling and plenty of humans still reach for `helm repo add`, and
+# being absent from that path is a complaint we can avoid for the cost of an
+# index file.
+name: Chart Pages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  index:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Publish the chart to the gh-pages index
+        uses: helm/chart-releaser-action@cae68fefc6b5f367a0275617c9f83181ba54714f # v1.7.0
+        with:
+          charts_dir: charts
+        env:
+          CR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
