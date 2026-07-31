@@ -712,7 +712,7 @@ image:
 # gpuModels:
 #   - name: h100
 #     spec:
-#       productName: NVIDIA H100 80GB HBM3
+#       productName: NVIDIA-H100-80GB-HBM3
 #       memory: 80Gi
 #       computeCapability: "9.0"
 #
@@ -899,7 +899,7 @@ spec:
 gpuModels:
   - name: h100
     spec:
-      productName: NVIDIA H100 80GB HBM3
+      productName: NVIDIA-H100-80GB-HBM3
       memory: 80Gi
       computeCapability: "9.0"
 
@@ -1237,7 +1237,7 @@ YAML
   --set image.repository="$IMAGE" \
   --set image.tag="$TAG" \
   --set gpuModels[0].name=chart-h100 \
-  --set gpuModels[0].spec.productName="NVIDIA H100 80GB HBM3" \
+  --set gpuModels[0].spec.productName="NVIDIA-H100-80GB-HBM3" \
   --set gpuModels[0].spec.memory=80Gi \
   --set gpuModels[0].spec.computeCapability="9.0" \
   --set gpuPools[0].name=chart-pool \
@@ -1652,6 +1652,24 @@ values alongside its own CRD would fail on first install.
 ```
 
 Verify that `kubectl apply --selector` line actually selects only the CRDs from `install.yaml` before publishing it. If the CRDs do not carry that label, replace the command with one that works rather than shipping one that does not.
+
+The README must also carry this caveat, which Task 7 proved on a live cluster rather than inferred:
+
+```markdown
+## Checking the install worked
+
+`helm install --wait` waits for the operator's Deployment, not for your fleet.
+It exits 0 while a `GPUPool` is still failing to reconcile, so a broken fleet
+looks like a successful install. Check the pool itself:
+
+```sh
+kubectl get gpupool -o wide
+```
+
+`DEVICES` reaching the count you declared is the signal that the fleet exists.
+```
+
+This is not hypothetical: a `productName` containing spaces produced exactly that outcome — `helm install` reported success while the controller looped on an invalid node label and `devicesPublished` never populated. `productName` becomes a Kubernetes node label value, so it must be a valid one.
 
 - [ ] **Step 2: Fix the README's Install section**
 
