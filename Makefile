@@ -107,7 +107,10 @@ setup-test-e2e: ## Set up a kwok+kind cluster with DRA enabled for e2e tests if 
 	@kubectl uncordon $(KIND_CLUSTER)-control-plane
 
 .PHONY: test-e2e
-test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests against an isolated kwok+kind cluster.
+test-e2e: setup-test-e2e manifests generate fmt vet build-cli ## Run the e2e tests against an isolated kwok+kind cluster.
+	# build-cli is a dependency because the capture suite runs the real binary:
+	# reproducing a cluster is a CLI-level claim, and a stale bin/ghostgpu would
+	# test a command that no longer matches the code.
 	# CertManager is only needed for webhook serving certificates, and ghostgpu
 	# has no webhooks (there is no config/webhook). Installing it would add a
 	# minutes-long dependency that no assertion touches.

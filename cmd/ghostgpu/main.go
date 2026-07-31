@@ -17,7 +17,10 @@ limitations under the License.
 // Command ghostgpu is the ghostgpu command-line interface.
 //
 // Adoption should not depend on hand-writing custom resources, so `ghostgpu up`
-// turns a handful of flags into the GPUModel/GPUPool pair and applies it.
+// turns a handful of flags into the GPUModel/GPUPool pair and applies it, and
+// `ghostgpu capture` derives that pair from a cluster that already exists.
+//
+// Only `up` writes anything. `status` and `capture` read and print.
 package main
 
 import (
@@ -29,7 +32,10 @@ import (
 	"os"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,6 +48,7 @@ const usage = `ghostgpu simulates GPU clusters on Kubernetes.
 Usage:
   ghostgpu up [flags]       create or update a simulated GPU pool
   ghostgpu status [flags]   show what is published and who holds it
+  ghostgpu capture [flags]  read a real cluster's GPU fleet and print manifests reproducing it
 
 Run "ghostgpu <command> -h" for the available flags.
 `
@@ -70,11 +77,77 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runUp(args, stdout, stderr)
 	case "status":
 		return runStatus(args, stdout, stderr)
+	case "capture":
+		return runCapture(args, stdout, stderr)
 	default:
 		say(stderr, "%s", usage)
 		os.Exit(2)
 		return nil
 	}
+}
+
+// runCapture reproduces a real cluster's GPU fleet as ghostgpu manifests.
+//
+// It never writes anywhere. Not to the source cluster — the client it holds is
+// a cli.ReadOnly, which has no write method to call — and not to the local one
+// either: the manifests go to stdout, so applying them stays the user's own
+// explicit act. Pointing a simulator at production has to be provably harmless,
+// and "prints YAML" is the easiest thing to prove.
+//
+// Warnings go to stderr so that `ghostgpu capture > fleet.yaml` still produces
+// a clean file while the user sees what could not be reproduced.
+func runCapture(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("ghostgpu capture", flag.ExitOnError)
+	fs.SetOutput(stderr)
+
+	kubeContext := fs.String("context", "",
+		"kubeconfig context of the cluster to read; empty uses the current one")
+	emitNodes := fs.Bool("nodes", true,
+		"also emit the kwok Node manifests reproducing the fleet, so applying the output is enough")
+	gpusPerNode := fs.Int("gpus-per-node", 0,
+		"physical GPUs per node, for clusters that publish nothing revealing it; 0 derives it")
+
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+
+	reader, err := newReader(*kubeContext)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+
+	var nodes corev1.NodeList
+	if err := reader.List(ctx, &nodes); err != nil {
+		return fmt.Errorf("listing nodes: %w", err)
+	}
+
+	// ResourceSlices are optional. A cluster with no DRA has none, and a
+	// read-only kubeconfig may not be allowed to see them; neither is a reason
+	// to refuse a capture that node labels alone can mostly satisfy.
+	var published resourcev1.ResourceSliceList
+	if err := reader.List(ctx, &published); err != nil {
+		say(stderr, "warning: could not read ResourceSlices (%v); capturing without DRA topology\n", err)
+	}
+
+	result, err := cli.Capture(nodes.Items, published.Items, cli.CaptureOptions{
+		GPUsPerNode: int32(*gpusPerNode),
+		EmitNodes:   *emitNodes,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, warning := range result.Warnings {
+		say(stderr, "warning: %s\n", warning)
+	}
+
+	rendered, err := cli.RenderYAML(result.Objects)
+	if err != nil {
+		return err
+	}
+	say(stdout, "%s", rendered)
+	return nil
 }
 
 // runStatus answers "what is published, and who holds it".
@@ -239,6 +312,54 @@ func newClient() (client.Client, error) {
 		return nil, fmt.Errorf("connecting to the cluster: %w", err)
 	}
 	return c, nil
+}
+
+// newReader connects to a cluster with the writes taken away.
+//
+// The concrete client is narrowed to cli.ReadOnly before it is ever returned,
+// so no caller can widen it back — capture cannot write to the cluster it was
+// pointed at even by mistake.
+func newReader(kubeContext string) (cli.ReadOnly, error) {
+	scheme, err := cli.Scheme()
+	if err != nil {
+		return cli.ReadOnly{}, err
+	}
+
+	cfg, err := configFor(kubeContext)
+	if err != nil {
+		return cli.ReadOnly{}, err
+	}
+
+	c, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return cli.ReadOnly{}, fmt.Errorf("connecting to the cluster: %w", err)
+	}
+	return cli.NewReadOnly(c), nil
+}
+
+// configFor resolves a named kubeconfig context, or the current one when the
+// name is empty.
+//
+// Naming the context explicitly is what makes capture safe to run against a
+// cluster that is not the one you are simulating into: pointing at production
+// should not mean switching your current context to it first.
+func configFor(kubeContext string) (*rest.Config, error) {
+	if kubeContext == "" {
+		cfg, err := ctrl.GetConfig()
+		if err != nil {
+			return nil, fmt.Errorf("no kubeconfig found: %w", err)
+		}
+		return cfg, nil
+	}
+
+	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(),
+		&clientcmd.ConfigOverrides{CurrentContext: kubeContext},
+	).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("kubeconfig context %q: %w", kubeContext, err)
+	}
+	return cfg, nil
 }
 
 // reportPool waits for the operator to publish devices and says what happened.

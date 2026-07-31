@@ -229,7 +229,7 @@ func TestBuildReportCarriesMIGProfile(t *testing.T) {
 		[]resourcev1.ResourceSlice{
 			deviceSlice("h100-pool", testNode,
 				migDevice("gpu-0-1g-10gb", "1g.10gb", 1, "10Gi"),
-				migDevice("gpu-0-7g-80gb", "7g.80gb", 7, "80Gi")),
+				migDevice("gpu-0-7g-80gb", "7g.80gb", 7, h100Memory)),
 		},
 		nil,
 	)
@@ -248,7 +248,7 @@ func TestBuildReportComputesGPUBudgets(t *testing.T) {
 	report := BuildReport(
 		[]v1alpha1.GPUPool{statusPool("h100-pool", v1alpha1.SharingModeMIG, 1, 2)},
 		[]resourcev1.ResourceSlice{
-			counterSlice("h100-pool", testNode, gpuCounterSet("gpu-0", 7, "80Gi")),
+			counterSlice("h100-pool", testNode, gpuCounterSet("gpu-0", 7, h100Memory)),
 			deviceSlice("h100-pool", testNode,
 				migDevice("gpu-0-3g-40gb", "3g.40gb", 3, "40Gi"),
 				migDevice("gpu-0-1g-10gb", "1g.10gb", 1, "10Gi")),
@@ -274,7 +274,7 @@ func TestBuildReportComputesGPUBudgets(t *testing.T) {
 	if g.UsedMemory.Cmp(resource.MustParse("40Gi")) != 0 {
 		t.Errorf("used memory = %v, want 40Gi", g.UsedMemory.String())
 	}
-	if g.TotalMemory.Cmp(resource.MustParse("80Gi")) != 0 {
+	if g.TotalMemory.Cmp(resource.MustParse(h100Memory)) != 0 {
 		t.Errorf("total memory = %v, want 80Gi", g.TotalMemory.String())
 	}
 }
@@ -289,7 +289,11 @@ func TestRenderPoolsIsTabular(t *testing.T) {
 	)
 
 	out := RenderPools(report)
-	for _, want := range []string{"POOL", "MODE", "NODES", "DEVICES", "h100-pool", "a100-pool", "mig"} {
+	wantContent := []string{
+		"POOL", "MODE", "NODES", "DEVICES",
+		"h100-pool", "a100-pool", string(v1alpha1.SharingModeMIG),
+	}
+	for _, want := range wantContent {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}

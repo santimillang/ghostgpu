@@ -43,6 +43,13 @@ import (
 // permits at most 128 devices in one ResourceSlice.
 const MaxGPUsPerNode = 128
 
+// Kinds the CLI writes into TypeMeta. Objects constructed in Go carry an empty
+// TypeMeta, and without apiVersion/kind the rendered YAML is not applyable.
+const (
+	kindGPUModel = "GPUModel"
+	kindGPUPool  = "GPUPool"
+)
+
 // computeCapabilityPattern mirrors the GPUModel CRD validation.
 var computeCapabilityPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 
@@ -295,7 +302,7 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 	model := &v1alpha1.GPUModel{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: v1alpha1.SchemeGroupVersion.String(),
-			Kind:       "GPUModel",
+			Kind:       kindGPUModel,
 		},
 		ObjectMeta: metav1.ObjectMeta{Name: opts.Name},
 		Spec: v1alpha1.GPUModelSpec{
@@ -310,7 +317,7 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 	pool := &v1alpha1.GPUPool{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: v1alpha1.SchemeGroupVersion.String(),
-			Kind:       "GPUPool",
+			Kind:       kindGPUPool,
 		},
 		ObjectMeta: metav1.ObjectMeta{Name: opts.Name + "-pool"},
 		Spec: v1alpha1.GPUPoolSpec{
