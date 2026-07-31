@@ -68,6 +68,9 @@ type GPUPoolReconciler struct {
 // metrics exporter needs them to attribute a simulated GPU to the pod holding
 // it. Allocation is the scheduler's to write, and ghostgpu never does.
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
+// Pods are read for their labels alone, so the metrics exporter can match a
+// per-workload utilization profile against the job holding a GPU.
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
 

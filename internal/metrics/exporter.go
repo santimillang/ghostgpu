@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/prometheus/client_golang/prometheus"
+	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -114,7 +115,20 @@ func (e *Exporter) snapshot(ctx context.Context) ([]Card, error) {
 		return nil, err
 	}
 
-	return CardsFrom(pools.Items, models, published.Items, Holders(claims.Items)), nil
+	// Pods are read for their labels alone, so a utilization profile can be
+	// matched against the job holding a GPU. A failure here is not fatal: the
+	// fleet is still describable without per-workload overrides, and losing
+	// them is better than losing every metric.
+	workloads := Workloads{}
+	var pods corev1.PodList
+	if err := e.Reader.List(ctx, &pods); err == nil {
+		for i := range pods.Items {
+			pod := &pods.Items[i]
+			workloads[Holder{Namespace: pod.Namespace, Pod: pod.Name}] = pod.Labels
+		}
+	}
+
+	return CardsFrom(pools.Items, models, published.Items, Holders(claims.Items), workloads), nil
 }
 
 // Holders maps each allocated ghostgpu device to the workload holding it.

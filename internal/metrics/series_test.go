@@ -19,6 +19,7 @@ package metrics
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	"github.com/santimillang/ghostgpu/api/v1alpha1"
@@ -94,7 +95,7 @@ func find(t *testing.T, series []Series, name string, match map[string]string) S
 func idleCard() Card {
 	return Card{
 		Node: "node-a", Index: 0, UUID: "GPU-abc", ProductName: "NVIDIA H100 80GB HBM3",
-		MemoryMiB: h100MiB, Reading: Resolve(nil, false),
+		MemoryMiB: h100MiB, Reading: Resolve(nil, false, nil),
 	}
 }
 
@@ -131,7 +132,7 @@ func TestBuildOmitsWorkloadLabelsWhenNothingHoldsTheDevice(t *testing.T) {
 func TestBuildAttributesAllocatedDevicesToTheirPod(t *testing.T) {
 	card := idleCard()
 	card.Holder = Holder{Namespace: testNamespace, Pod: "trainer-0", Container: testWorkload}
-	card.Reading = Resolve(nil, true)
+	card.Reading = Resolve(nil, true, nil)
 
 	series := Build([]Card{card})
 
@@ -151,7 +152,7 @@ func TestBuildFramebufferFollowsDeclaredPercentage(t *testing.T) {
 	card := idleCard()
 	card.Reading = Resolve(&v1alpha1.UtilizationSpec{
 		WhenAllocated: &v1alpha1.UtilizationSample{FBUsedPercent: ptr.To(int32(75))},
-	}, true)
+	}, true, nil)
 
 	series := Build([]Card{card})
 
@@ -177,7 +178,7 @@ func TestBuildConvertsProfilingPercentagesToRatios(t *testing.T) {
 			GREngineActivePercent: ptr.To(int32(90)),
 			TensorActivePercent:   ptr.To(int32(45)),
 		},
-	}, true)
+	}, true, nil)
 
 	series := Build([]Card{card})
 
@@ -206,7 +207,7 @@ func TestBuildOmitsPowerAndTemperatureUntilDeclared(t *testing.T) {
 			PowerWatts:   ptr.To(int32(70)),
 			TemperatureC: ptr.To(int32(31)),
 		},
-	}, false)
+	}, false, nil)
 
 	series = Build([]Card{card})
 	if got := find(t, series, PowerUsage, nil).Value; got != 70 {
@@ -224,14 +225,14 @@ func TestBuildReportsBothCardAndMIGInstances(t *testing.T) {
 	card := idleCard()
 	card.Reading = Resolve(&v1alpha1.UtilizationSpec{
 		WhenIdle: &v1alpha1.UtilizationSample{PowerWatts: ptr.To(int32(300))},
-	}, false)
+	}, false, nil)
 	card.Instances = []Instance{
 		{
 			Profile: profileLarge, InstanceID: 3, MemoryMiB: 40960,
 			Holder:  Holder{Namespace: defaultNamespace, Pod: testWorkload},
-			Reading: Resolve(nil, true),
+			Reading: Resolve(nil, true, nil),
 		},
-		{Profile: "1g.10gb", InstanceID: 7, MemoryMiB: 10240, Reading: Resolve(nil, false)},
+		{Profile: "1g.10gb", InstanceID: 7, MemoryMiB: 10240, Reading: Resolve(nil, false, nil)},
 	}
 
 	series := Build([]Card{card})
@@ -271,12 +272,124 @@ func TestBuildReportsBothCardAndMIGInstances(t *testing.T) {
 	}
 }
 
+// The fixture idle-GPU reclamation actually needs: one job using its GPU
+// properly beside one wasting it. A fleet where every allocated card reports
+// the same number cannot ask the question those tools answer.
+func TestResolveAppliesPerWorkloadProfiles(t *testing.T) {
+	spec := &v1alpha1.UtilizationSpec{
+		WhenAllocated: &v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(90))},
+		Workloads: []v1alpha1.WorkloadUtilization{{
+			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{jobLabel: "notebook"}},
+			UtilizationSample: v1alpha1.UtilizationSample{
+				GPUUtil:       ptr.To(int32(4)),
+				FBUsedPercent: ptr.To(int32(60)),
+			},
+		}},
+	}
+
+	wasteful := Resolve(spec, true, map[string]string{jobLabel: "notebook"})
+	if wasteful.GPUUtil != 4 || wasteful.FBUsedPercent != 60 {
+		t.Errorf("notebook reading = %+v, want 4%% util holding 60%% of the framebuffer", wasteful)
+	}
+
+	trainer := Resolve(spec, true, map[string]string{jobLabel: testWorkload})
+	if trainer.GPUUtil != 90 {
+		t.Errorf("trainer util = %d, want the pool default 90", trainer.GPUUtil)
+	}
+}
+
+// An entry states only what makes that workload different; everything else
+// falls back through whenAllocated to the busy defaults.
+func TestResolveLayersWorkloadOverPoolDefault(t *testing.T) {
+	spec := &v1alpha1.UtilizationSpec{
+		WhenAllocated: &v1alpha1.UtilizationSample{
+			GPUUtil:       ptr.To(int32(90)),
+			FBUsedPercent: ptr.To(int32(80)),
+			PowerWatts:    ptr.To(int32(600)),
+		},
+		Workloads: []v1alpha1.WorkloadUtilization{{
+			UtilizationSample: v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(5))},
+		}},
+	}
+
+	got := Resolve(spec, true, map[string]string{"any": "pod"})
+	if got.GPUUtil != 5 {
+		t.Errorf("util = %d, want the workload's 5", got.GPUUtil)
+	}
+	if got.FBUsedPercent != 80 {
+		t.Errorf("framebuffer = %d, want whenAllocated's 80 to show through", got.FBUsedPercent)
+	}
+	if got.PowerWatts == nil || *got.PowerWatts != 600 {
+		t.Errorf("power = %v, want whenAllocated's 600 to show through", got.PowerWatts)
+	}
+}
+
+// A workload profile describes a job. An idle GPU has no job, so none applies —
+// otherwise a selector-less entry would rewrite the whole idle fleet.
+func TestResolveIgnoresWorkloadProfilesWhenIdle(t *testing.T) {
+	spec := &v1alpha1.UtilizationSpec{
+		Workloads: []v1alpha1.WorkloadUtilization{{
+			UtilizationSample: v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(77))},
+		}},
+	}
+
+	if got := Resolve(spec, false, nil); got.GPUUtil != 0 {
+		t.Errorf("idle util = %d, want 0", got.GPUUtil)
+	}
+}
+
+func TestResolveWorkloadFirstMatchWins(t *testing.T) {
+	spec := &v1alpha1.UtilizationSpec{
+		Workloads: []v1alpha1.WorkloadUtilization{
+			{
+				PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{tierLabel: tierBatch}},
+				UtilizationSample: v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(30))},
+			},
+			{
+				// No selector: the default, reachable only because the entry
+				// above did not match.
+				UtilizationSample: v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(60))},
+			},
+		},
+	}
+
+	if got := Resolve(spec, true, map[string]string{tierLabel: tierBatch}); got.GPUUtil != 30 {
+		t.Errorf("batch util = %d, want 30", got.GPUUtil)
+	}
+	if got := Resolve(spec, true, map[string]string{tierLabel: "interactive"}); got.GPUUtil != 60 {
+		t.Errorf("fallthrough util = %d, want the selector-less 60", got.GPUUtil)
+	}
+}
+
+// matchExpressions is why this takes a LabelSelector rather than a plain map.
+func TestResolveSupportsMatchExpressions(t *testing.T) {
+	spec := &v1alpha1.UtilizationSpec{
+		Workloads: []v1alpha1.WorkloadUtilization{{
+			PodSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      tierLabel,
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{tierBatch, "spot"},
+				}},
+			},
+			UtilizationSample: v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(12))},
+		}},
+	}
+
+	if got := Resolve(spec, true, map[string]string{tierLabel: "spot"}); got.GPUUtil != 12 {
+		t.Errorf("spot util = %d, want 12", got.GPUUtil)
+	}
+	if got := Resolve(spec, true, map[string]string{tierLabel: "prod"}); got.GPUUtil != 100 {
+		t.Errorf("prod util = %d, want the busy default 100", got.GPUUtil)
+	}
+}
+
 // An explicit zero has to override a non-zero default, because zero is a
 // meaningful reading rather than an absence.
 func TestResolveDistinguishesExplicitZeroFromUnset(t *testing.T) {
 	busy := Resolve(&v1alpha1.UtilizationSpec{
 		WhenAllocated: &v1alpha1.UtilizationSample{GPUUtil: ptr.To(int32(0))},
-	}, true)
+	}, true, nil)
 	if busy.GPUUtil != 0 {
 		t.Errorf("explicit 0 gave %d; a defaulted field swallowed it", busy.GPUUtil)
 	}
@@ -291,7 +404,7 @@ func TestResolveDistinguishesExplicitZeroFromUnset(t *testing.T) {
 func TestBuildIsDeterministic(t *testing.T) {
 	cards := []Card{idleCard(), {
 		Node: "node-b", Index: 1, UUID: "GPU-def", ProductName: "NVIDIA H100 80GB HBM3",
-		MemoryMiB: h100MiB, Reading: Resolve(nil, true),
+		MemoryMiB: h100MiB, Reading: Resolve(nil, true, nil),
 	}}
 
 	first, second := Build(cards), Build(cards)

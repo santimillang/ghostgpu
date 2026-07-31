@@ -23,6 +23,9 @@ import (
 	"strconv"
 	"strings"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
+
 	"github.com/santimillang/ghostgpu/api/v1alpha1"
 )
 
@@ -223,7 +226,12 @@ func labelKey(labels map[string]string) string {
 // rather than a guess. Busy defaults to fully utilized. Power and temperature
 // have no default in either state: ghostgpu models neither, so those series
 // stay absent until someone declares them.
-func Resolve(spec *v1alpha1.UtilizationSpec, busy bool) Reading {
+//
+// workload is the labels of the pod holding the device, or nil when nothing
+// holds it. A matching spec.workloads entry layers on top of whenAllocated, so
+// an entry only has to state what makes that job different — which is what lets
+// one fleet hold a well-behaved job beside a wasteful one.
+func Resolve(spec *v1alpha1.UtilizationSpec, busy bool, workload map[string]string) Reading {
 	reading := Reading{}
 	if busy {
 		reading = Reading{GPUUtil: 100, FBUsedPercent: 100, GREngineActive: 100}
@@ -237,21 +245,65 @@ func Resolve(spec *v1alpha1.UtilizationSpec, busy bool) Reading {
 	if busy {
 		sample = spec.WhenAllocated
 	}
-	if sample == nil {
-		return reading
+	apply(&reading, sample)
+
+	// Layered rather than replacing, and only for a held device: an idle GPU
+	// has no workload whose profile could apply to it.
+	if busy {
+		if override := matchWorkload(spec.Workloads, workload); override != nil {
+			apply(&reading, override)
+		}
 	}
 
-	// Every field is a pointer so that an explicit zero overrides a non-zero
-	// default. Zero is a meaningful reading here, not an absence.
+	return reading
+}
+
+// matchWorkload finds the first entry whose selector matches the pod.
+//
+// A selector that cannot be parsed matches nothing rather than everything. The
+// API server validates these, so an unparseable one means something unusual is
+// going on, and the safe reading of "I do not understand this rule" is to leave
+// the fleet's defaults alone rather than apply the rule to every workload.
+func matchWorkload(entries []v1alpha1.WorkloadUtilization, labels map[string]string) *v1alpha1.UtilizationSample {
+	for i := range entries {
+		entry := &entries[i]
+
+		if entry.PodSelector != nil {
+			selector, err := metav1.LabelSelectorAsSelector(entry.PodSelector)
+			if err != nil {
+				continue
+			}
+			if !selector.Matches(k8slabels.Set(labels)) {
+				continue
+			}
+		}
+		return &entry.UtilizationSample
+	}
+	return nil
+}
+
+// apply layers a declared sample over a reading.
+//
+// Every field is a pointer so that an explicit zero overrides a non-zero
+// default. Zero is a meaningful reading here, not an absence — a job at 0%
+// utilization is precisely the one an idle-GPU reclaimer is looking for.
+func apply(reading *Reading, sample *v1alpha1.UtilizationSample) {
+	if sample == nil {
+		return
+	}
+
 	setIf(&reading.GPUUtil, sample.GPUUtil)
 	setIf(&reading.MemCopyUtil, sample.MemCopyUtil)
 	setIf(&reading.FBUsedPercent, sample.FBUsedPercent)
 	setIf(&reading.GREngineActive, sample.GREngineActivePercent)
 	setIf(&reading.TensorActive, sample.TensorActivePercent)
-	reading.PowerWatts = sample.PowerWatts
-	reading.TemperatureC = sample.TemperatureC
 
-	return reading
+	if sample.PowerWatts != nil {
+		reading.PowerWatts = sample.PowerWatts
+	}
+	if sample.TemperatureC != nil {
+		reading.TemperatureC = sample.TemperatureC
+	}
 }
 
 func setIf(target *int32, value *int32) {
