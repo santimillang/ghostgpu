@@ -14,7 +14,15 @@ Simulate GPU clusters on Kubernetes. Test GPU-aware schedulers, autoscalers, and
 
 ghostgpu builds on [kwok](https://kwok.sigs.k8s.io/) and publishes Dynamic Resource Allocation (DRA) `ResourceSlice`s plus legacy extended-resource capacity, so a real `kube-scheduler` makes real placement decisions against hardware that does not exist.
 
-> **Status:** early development. The v0.1 core works and is covered end-to-end against a real `kube-scheduler`, but nothing is released yet and the `v1alpha1` API carries no compatibility guarantee. Build from source.
+> **Status:** early development. The core works and is covered end-to-end against a real `kube-scheduler`, but the `v1alpha1` API carries no compatibility guarantee yet.
+
+## Install
+
+```sh
+kubectl apply -f https://github.com/santimillang/ghostgpu/releases/latest/download/install.yaml
+```
+
+Installing is safe alongside real hardware: ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation, whatever a pool selector matches.
 
 ## Why
 
@@ -32,9 +40,8 @@ kwokctl create cluster --name ghostgpu --runtime kind \
   --kube-feature-gates "DynamicResourceAllocation=true" \
   --kube-runtime-config "resource.k8s.io/v1=true"
 
-# 2. Install the CRDs and run the operator
-make install
-make run
+# 2. Install ghostgpu
+kubectl apply -f https://github.com/santimillang/ghostgpu/releases/latest/download/install.yaml
 
 # 3. Give your kwok nodes some GPUs
 make build-cli
