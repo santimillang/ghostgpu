@@ -1,0 +1,66 @@
+# A pool that declares what a busy GPU reports, so the scraped numbers can be
+# asserted rather than merely eyeballed.
+#
+# Power and temperature are deliberately left undeclared: the suite checks they
+# are absent, because ghostgpu has no thermal model and a plausible wattage
+# would be fabrication rather than simulation.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: metrics-h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: metrics-pool
+spec:
+  modelRef: metrics-h100
+  nodeSelector:
+    type: metrics
+  gpusPerNode: 4
+  utilization:
+    whenAllocated:
+      gpuUtil: 85
+      fbUsedPercent: 70
+      grEngineActivePercent: 90
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-metrics-e2e
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-metrics-0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-metrics-0
+    kubernetes.io/os: linux
+    type: metrics
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running

@@ -1,0 +1,151 @@
+//go:build e2e
+// +build e2e
+
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package e2e
+
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/santimillang/ghostgpu/test/utils"
+)
+
+const metricsPool = "metrics-pool"
+
+// scrape reads the simulated fleet's metrics the way Prometheus would, from
+// inside the cluster.
+//
+// Run from a throwaway pod rather than through kubectl port-forward: a
+// port-forward is a long-lived background process that has to be cleaned up and
+// raced against, whereas this either returns the exposition or fails.
+func scrape(g Gomega) string {
+	out, err := utils.Run(exec.Command("kubectl", "run", "metrics-scrape",
+		"--rm", "-i", "--restart=Never", "--image=curlimages/curl:8.11.1",
+		"--command", "--",
+		"curl", "-s", fmt.Sprintf("http://ghostgpu-gpu-metrics.%s.svc:9400/metrics", namespace)))
+	g.Expect(err).NotTo(HaveOccurred(), out)
+	return out
+}
+
+// The claim these metrics rest on is not that ghostgpu has an endpoint — other
+// simulators do — but that the numbers are attributed correctly. That comes
+// from ResourceClaim.status, which the scheduler owns, so only a real scheduler
+// can show it working.
+var _ = Describe("metrics", Ordered, func() {
+	var exposition string
+
+	BeforeAll(func() {
+		By("waiting for the controller-manager to be available")
+		Eventually(func(g Gomega) {
+			out, err := utils.Run(exec.Command("kubectl", "wait", "--for=condition=Available",
+				"deployment/ghostgpu-controller-manager", "-n", namespace, "--timeout=30s"))
+			g.Expect(err).NotTo(HaveOccurred(), out)
+		}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+		By("creating a pool that declares what a busy GPU reports")
+		_, err := utils.Run(exec.Command("kubectl", "apply", "-f", testdata("metrics.yaml")))
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			g.Expect(jsonPath(g, "gpupool", metricsPool, "{.status.devicesPublished}")).To(Equal("4"))
+		}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+		By("placing a workload on one of them")
+		Expect(applyYAML(gpuClaim("metrics-trainer", 1, "ghostgpu-metrics-e2e"))).To(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(podPhase(g, "metrics-trainer")).To(Equal("Running"))
+		}, 2*time.Minute, 2*time.Second).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			exposition = scrape(g)
+			g.Expect(exposition).To(ContainSubstring("DCGM_FI_DEV_GPU_UTIL"))
+		}, 2*time.Minute, 5*time.Second).Should(Succeed())
+	})
+
+	AfterAll(func() {
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", "metrics-trainer", "--ignore-not-found"))
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "resourceclaim",
+			"metrics-trainer-claim", "--ignore-not-found"))
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "-f",
+			testdata("metrics.yaml"), "--ignore-not-found"))
+	})
+
+	It("serves the metric names real tooling queries", func() {
+		for _, name := range []string{
+			"DCGM_FI_DEV_GPU_UTIL",
+			"DCGM_FI_DEV_FB_USED",
+			"DCGM_FI_DEV_FB_FREE",
+			"DCGM_FI_PROF_GR_ENGINE_ACTIVE",
+			"DCGM_FI_DEV_XID_ERRORS",
+		} {
+			Expect(exposition).To(ContainSubstring(name))
+		}
+	})
+
+	// The differentiator. Real dcgm-exporter deployments have a long tail of
+	// bugs attributing a GPU to the workload holding it; ghostgpu reads it out
+	// of the allocation the scheduler already wrote.
+	It("attributes a busy GPU to the pod the scheduler gave it to", func() {
+		var busy string
+		for _, line := range strings.Split(exposition, "\n") {
+			if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") && strings.Contains(line, `pod="metrics-trainer"`) {
+				busy = line
+				break
+			}
+		}
+		Expect(busy).NotTo(BeEmpty(),
+			"no GPU utilization series is attributed to the pod holding a GPU:\n"+exposition)
+
+		// The declared busy reading, not a default and not a random number.
+		Expect(busy).To(HaveSuffix(" 85"))
+		Expect(busy).To(ContainSubstring(`namespace="default"`))
+		Expect(busy).To(ContainSubstring(`modelName="NVIDIA-H100-80GB-HBM3"`))
+		Expect(busy).To(MatchRegexp(`Hostname="ghost-metrics-\d"`))
+	})
+
+	// An empty pod label is a distinct time series that sum by (pod) would
+	// group on, which is exactly the confusion to avoid.
+	It("gives idle GPUs no workload labels at all", func() {
+		idle := 0
+		for _, line := range strings.Split(exposition, "\n") {
+			if !strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") {
+				continue
+			}
+			if strings.Contains(line, "pod=") {
+				continue
+			}
+			idle++
+			Expect(line).NotTo(ContainSubstring("namespace="))
+			Expect(line).To(HaveSuffix(" 0"), "an unheld GPU is not idle: "+line)
+		}
+		Expect(idle).To(Equal(3), "expected the other three GPUs to be idle and unlabelled")
+	})
+
+	// ghostgpu has no thermal model, so a wattage nobody declared would be
+	// fabrication rather than simulation.
+	It("omits power and temperature, which this pool never declared", func() {
+		Expect(exposition).NotTo(ContainSubstring("DCGM_FI_DEV_POWER_USAGE"))
+		Expect(exposition).NotTo(ContainSubstring("DCGM_FI_DEV_GPU_TEMP"))
+	})
+})

@@ -64,6 +64,10 @@ type GPUPoolReconciler struct {
 // +kubebuilder:rbac:groups=ghostgpu.dev,resources=gpupools/finalizers,verbs=update
 // +kubebuilder:rbac:groups=ghostgpu.dev,resources=gpumodels,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch;create;update;patch;delete
+// ResourceClaims are read-only and are not this controller's concern: the
+// metrics exporter needs them to attribute a simulated GPU to the pod holding
+// it. Allocation is the scheduler's to write, and ghostgpu never does.
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get;update;patch
 
