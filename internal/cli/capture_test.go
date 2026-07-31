@@ -629,11 +629,11 @@ func TestCaptureRoundTrip(t *testing.T) {
 
 			var published []resourcev1.ResourceSlice
 			if pool.Spec.MIGEnabled() {
-				for _, s := range gpu.BuildMIGSlices(pool, model, table, node.Name) {
+				for _, s := range gpu.BuildMIGSlices(pool, model, table, node.Name, 0) {
 					published = append(published, *s)
 				}
 			} else {
-				published = append(published, *gpu.BuildResourceSlice(pool, model, node.Name))
+				published = append(published, *gpu.BuildResourceSlice(pool, model, node.Name, 0))
 			}
 
 			got := mustCapture(t, []corev1.Node{node}, published, CaptureOptions{EmitNodes: true})
@@ -784,6 +784,23 @@ func TestCaptureNamesDoNotCollide(t *testing.T) {
 	}
 	if n := len(modelsIn(got.Objects)); n != 2 {
 		t.Errorf("models = %d, want 2 — the product strings differ verbatim", n)
+	}
+}
+
+// Occupancy is ghostgpu's own doing, not the source cluster's, so it must not
+// appear in a capture. A capture reproduces the hardware; how full that fleet
+// starts is a property of the test case written next.
+func TestCaptureDoesNotInventOccupancy(t *testing.T) {
+	nodes := []corev1.Node{gfdNode(sourceNode, wholeGPULabels(h100Product, 8), nil)}
+
+	got := mustCapture(t, nodes, nil, CaptureOptions{})
+
+	pools := poolsIn(got.Objects)
+	if len(pools) != 1 {
+		t.Fatalf("pools = %d, want 1", len(pools))
+	}
+	if len(pools[0].Spec.Occupancy) != 0 {
+		t.Errorf("occupancy = %+v, want none", pools[0].Spec.Occupancy)
 	}
 }
 

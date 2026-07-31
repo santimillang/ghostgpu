@@ -61,6 +61,107 @@ func wholeDevice(name string) resourcev1.Device {
 	return resourcev1.Device{Name: name}
 }
 
+func occupiedDevice(name string) resourcev1.Device {
+	return resourcev1.Device{
+		Name:   name,
+		Taints: []resourcev1.DeviceTaint{gpu.OccupiedTaint()},
+	}
+}
+
+// Occupied and allocated are different states with different owners: one is the
+// pool spec's doing, the other the scheduler's. Reporting occupancy as an
+// allocation would invent a holder that does not exist, and reporting it as
+// free would describe a fleet with more room than the scheduler can see.
+func TestBuildReportSeparatesOccupiedFromAllocated(t *testing.T) {
+	report := BuildReport(
+		[]v1alpha1.GPUPool{statusPool("h100-pool", v1alpha1.SharingModeNone, 1, 4)},
+		[]resourcev1.ResourceSlice{
+			deviceSlice("h100-pool", testNode,
+				occupiedDevice("gpu-0"),
+				occupiedDevice("gpu-1"),
+				wholeDevice("gpu-2"),
+				wholeDevice("gpu-3")),
+		},
+		[]resourcev1.ResourceClaim{claim("default", testNode, "gpu-2", "trainer")},
+	)
+
+	if len(report.Pools) != 1 {
+		t.Fatalf("pools = %d, want 1", len(report.Pools))
+	}
+	p := report.Pools[0]
+	if p.Occupied != 2 {
+		t.Errorf("occupied = %d, want 2", p.Occupied)
+	}
+	if p.Allocated != 1 {
+		t.Errorf("allocated = %d, want 1", p.Allocated)
+	}
+
+	byName := map[string]DeviceStatus{}
+	for _, d := range report.Devices {
+		byName[d.Device] = d
+	}
+	if !byName["gpu-0"].Occupied || byName["gpu-0"].Allocated {
+		t.Errorf("gpu-0 = %+v, want occupied and not allocated", byName["gpu-0"])
+	}
+	if byName["gpu-2"].Occupied || !byName["gpu-2"].Allocated {
+		t.Errorf("gpu-2 = %+v, want allocated and not occupied", byName["gpu-2"])
+	}
+	if byName["gpu-3"].Occupied || byName["gpu-3"].Allocated {
+		t.Errorf("gpu-3 = %+v, want free", byName["gpu-3"])
+	}
+}
+
+func TestRenderPoolsSubtractsOccupiedFromFree(t *testing.T) {
+	report := BuildReport(
+		[]v1alpha1.GPUPool{statusPool("h100-pool", v1alpha1.SharingModeNone, 1, 4)},
+		[]resourcev1.ResourceSlice{
+			deviceSlice("h100-pool", testNode,
+				occupiedDevice("gpu-0"),
+				occupiedDevice("gpu-1"),
+				wholeDevice("gpu-2"),
+				wholeDevice("gpu-3")),
+		},
+		[]resourcev1.ResourceClaim{claim("default", testNode, "gpu-2", "trainer")},
+	)
+
+	out := RenderPools(report)
+	if !strings.Contains(out, "OCCUPIED") {
+		t.Errorf("output has no OCCUPIED column:\n%s", out)
+	}
+
+	// Assert on fields rather than spacing: the column widths are the
+	// tabwriter's business and would make this brittle for no gain.
+	// 4 devices, 2 occupied, 1 allocated, so exactly 1 is genuinely free.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want a header and one row, got:\n%s", out)
+	}
+	fields := strings.Fields(lines[1])
+	if got := strings.Join(fields[len(fields)-4:], " "); got != "4 2 1 1" {
+		t.Errorf("devices/occupied/allocated/free = %q, want \"4 2 1 1\":\n%s", got, out)
+	}
+}
+
+// A device declared busy has no pod behind it, so the holder column must not
+// imply one.
+func TestRenderDevicesLabelsOccupied(t *testing.T) {
+	report := BuildReport(
+		[]v1alpha1.GPUPool{statusPool("h100-pool", v1alpha1.SharingModeNone, 1, 2)},
+		[]resourcev1.ResourceSlice{
+			deviceSlice("h100-pool", testNode, occupiedDevice("gpu-0"), wholeDevice("gpu-1")),
+		},
+		nil,
+	)
+
+	out := RenderDevices(report, "")
+	if !strings.Contains(out, "occupied") {
+		t.Errorf("occupied device not labelled:\n%s", out)
+	}
+	if !strings.Contains(out, "(declared)") {
+		t.Errorf("occupied device should say who declared it, not name a pod:\n%s", out)
+	}
+}
+
 func migDevice(name, profile string, slices int64, memory string) resourcev1.Device {
 	value := profile
 	return resourcev1.Device{

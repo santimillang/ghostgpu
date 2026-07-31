@@ -71,7 +71,27 @@ func MaxInstances(profile mig.Profile, budget mig.Budget) int64 {
 // exists for tooling that predates DRA, and the design spec records it as
 // approximated rather than faithful.
 func NodeResources(pool *v1alpha1.GPUPool, table mig.Table) corev1.ResourceList {
-	gpus := int64(pool.Spec.GPUsPerNode)
+	return nodeResourcesFor(pool, table, pool.Spec.GPUsPerNode)
+}
+
+// NodeAllocatable is the capacity a simulated node offers the scheduler once
+// declared occupancy is taken out.
+//
+// Expressed as allocatable below capacity rather than as reduced capacity,
+// because that is already what the distinction means in Kubernetes: allocatable
+// is the part of a node's capacity available to this scheduler, which is how
+// --system-reserved describes memory held by something outside its view. A
+// spike confirmed the scheduler honours it and ignores the larger capacity.
+//
+// Unlike the MIG projection, this is faithful rather than approximated: there
+// is nothing about "six of these eight GPUs are already busy" that a scalar
+// resource cannot say.
+func NodeAllocatable(pool *v1alpha1.GPUPool, table mig.Table, busy int32) corev1.ResourceList {
+	return nodeResourcesFor(pool, table, max(0, pool.Spec.GPUsPerNode-busy))
+}
+
+func nodeResourcesFor(pool *v1alpha1.GPUPool, table mig.Table, gpusAvailable int32) corev1.ResourceList {
+	gpus := int64(gpusAvailable)
 
 	if !pool.Spec.MIGEnabled() {
 		return corev1.ResourceList{
@@ -89,29 +109,32 @@ func NodeResources(pool *v1alpha1.GPUPool, table mig.Table) corev1.ResourceList 
 	// A declared partition is the exact case. Every instance in it coexists, so
 	// the per-profile counts sum to something the hardware can genuinely
 	// satisfy and a scheduler cannot overcommit the node.
-	if declared := pool.Spec.MIGPartition; len(declared) > 0 {
-		perGPU := make(map[string]int32, len(declared))
-		for _, e := range declared {
-			perGPU[e.Profile] += e.Count
-		}
-		// Iterate the table, not the entries, so output order is stable.
-		for _, profile := range table.Profiles {
-			if count := int64(perGPU[profile.Name]) * gpus; count > 0 {
-				resources[MIGResourceName(profile.Name)] = *resource.NewQuantity(count, resource.DecimalSI)
-			}
-		}
-		return resources
+	declared := pool.Spec.MIGPartition
+	perGPU := make(map[string]int32, len(declared))
+	for _, e := range declared {
+		perGPU[e.Profile] += e.Count
 	}
 
-	// Without one, each count is the most instances of that profile the card
-	// could hold. Individually faithful; their sum overcommits, because these
-	// are alternatives and a scalar resource cannot say so. See issue #28.
+	// Iterate the table, not the entries, so output order is stable.
 	for _, profile := range table.Profiles {
-		count := MaxInstances(profile, table.Budget) * gpus
-		if count <= 0 {
+		// Without a partition, each count is the most instances of that profile
+		// the card could hold. Individually faithful; their sum overcommits,
+		// because these are alternatives and a scalar resource cannot say so.
+		// See issue #28.
+		perCard := int64(perGPU[profile.Name])
+		if len(declared) == 0 {
+			perCard = MaxInstances(profile, table.Budget)
+		}
+		if perCard <= 0 {
+			// The profile does not exist on this hardware at all, which is
+			// different from existing and being unavailable.
 			continue
 		}
-		resources[MIGResourceName(profile.Name)] = *resource.NewQuantity(count, resource.DecimalSI)
+		// Keyed off perCard rather than the product, so that a node whose GPUs
+		// are all occupied still advertises the profile at zero. The key set has
+		// to match the one capacity uses: a resource that vanishes from
+		// allocatable reads as "not updated yet" rather than "exhausted".
+		resources[MIGResourceName(profile.Name)] = *resource.NewQuantity(perCard*gpus, resource.DecimalSI)
 	}
 
 	return resources
