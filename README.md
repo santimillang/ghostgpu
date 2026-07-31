@@ -18,9 +18,22 @@ ghostgpu builds on [kwok](https://kwok.sigs.k8s.io/) and publishes Dynamic Resou
 
 ## Install
 
+Helm:
+
+```sh
+helm install ghostgpu oci://ghcr.io/santimillang/charts/ghostgpu \
+  --namespace ghostgpu-system --create-namespace
+```
+
+Or a single manifest:
+
 ```sh
 kubectl apply -f https://github.com/santimillang/ghostgpu/releases/latest/download/install.yaml
 ```
+
+The CLI is a separate binary — download it from
+[the latest release](https://github.com/santimillang/ghostgpu/releases/latest),
+or build it with `make build-cli`.
 
 Installing is safe alongside real hardware: ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation, whatever a pool selector matches.
 
@@ -44,8 +57,9 @@ kwokctl create cluster --name ghostgpu --runtime kind \
 kubectl apply -f https://github.com/santimillang/ghostgpu/releases/latest/download/install.yaml
 
 # 3. Give your kwok nodes some GPUs
-make build-cli
-./bin/ghostgpu up --gpus-per-node 8 --nvlink-domain-size 4
+curl -sSfL https://github.com/santimillang/ghostgpu/releases/latest/download/ghostgpu_linux_amd64.tar.gz \
+  | tar xz ghostgpu
+./ghostgpu up --gpus-per-node 8 --nvlink-domain-size 4
 ```
 
 ```
