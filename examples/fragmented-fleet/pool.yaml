@@ -1,0 +1,39 @@
+# Four nodes, four GPUs each, unevenly occupied: 2/2/2/1 free.
+#
+# Occupancy entries are first-match-wins, so the specific rack precedes the
+# selector-less default. That ordering is how a fleet becomes uneven — one
+# number per pool can only describe a cluster that is equally full everywhere,
+# which is not a fragmentation scenario.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: fragmented-h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: fragmented
+spec:
+  modelRef: fragmented-h100
+  nodeSelector:
+    example: fragmented-fleet
+  gpusPerNode: 4
+  occupancy:
+    - nodeSelector:
+        rack: c
+      busyPerNode: 3
+    - busyPerNode: 2
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-example
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"

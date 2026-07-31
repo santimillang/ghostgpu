@@ -31,7 +31,10 @@ import (
 	"github.com/santimillang/ghostgpu/test/utils"
 )
 
-const metricsPool = "metrics-pool"
+const (
+	metricsPool = "metrics-pool"
+	metricsNode = "ghost-metrics-0"
+)
 
 // scrape reads the simulated fleet's metrics the way Prometheus would, from
 // inside the cluster.
@@ -46,6 +49,18 @@ func scrape(g Gomega) string {
 		"curl", "-s", fmt.Sprintf("http://ghostgpu-gpu-metrics.%s.svc:9400/metrics", namespace)))
 	g.Expect(err).NotTo(HaveOccurred(), out)
 	return out
+}
+
+// utilizationFor pulls one pod's reported GPU utilization out of the
+// exposition, or "" when no series is attributed to it.
+func utilizationFor(exposition, pod string) string {
+	for _, line := range strings.Split(exposition, "\n") {
+		if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") && strings.Contains(line, `pod="`+pod+`"`) {
+			fields := strings.Fields(line)
+			return fields[len(fields)-1]
+		}
+	}
+	return ""
 }
 
 // The claim these metrics rest on is not that ghostgpu has an endpoint — other
@@ -80,9 +95,18 @@ var _ = Describe("metrics", Ordered, func() {
 			g.Expect(podPhase(g, "wasteful")).To(Equal("Running"))
 		}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
+		// Wait until both workloads actually appear attributed, not merely
+		// until the metric name exists. A pod reaching Running and the exporter
+		// observing its allocation are different moments, and the first scrape
+		// satisfies a name check while still describing an unheld fleet — which
+		// would make every assertion below race the exporter.
 		Eventually(func(g Gomega) {
 			exposition = scrape(g)
 			g.Expect(exposition).To(ContainSubstring("DCGM_FI_DEV_GPU_UTIL"))
+			g.Expect(utilizationFor(exposition, "metrics-trainer")).NotTo(BeEmpty(),
+				"the exporter has not yet attributed a GPU to the trainer")
+			g.Expect(utilizationFor(exposition, "wasteful")).NotTo(BeEmpty(),
+				"the exporter has not yet attributed a GPU to the wasteful job")
 		}, 2*time.Minute, 5*time.Second).Should(Succeed())
 	})
 
@@ -132,9 +156,16 @@ var _ = Describe("metrics", Ordered, func() {
 	// An empty pod label is a distinct time series that sum by (pod) would
 	// group on, which is exactly the confusion to avoid.
 	It("gives idle GPUs no workload labels at all", func() {
+		// Scoped to this scenario's own node. The exporter publishes the whole
+		// cluster from one endpoint, so counting every unlabelled series in the
+		// exposition would make this assertion depend on which other suites
+		// happen to have a fleet up at the time.
 		idle := 0
 		for _, line := range strings.Split(exposition, "\n") {
 			if !strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") {
+				continue
+			}
+			if !strings.Contains(line, `Hostname="`+metricsNode+`"`) {
 				continue
 			}
 			if strings.Contains(line, "pod=") {
@@ -144,7 +175,18 @@ var _ = Describe("metrics", Ordered, func() {
 			Expect(line).NotTo(ContainSubstring("namespace="))
 			Expect(line).To(HaveSuffix(" 0"), "an unheld GPU is not idle: "+line)
 		}
-		Expect(idle).To(Equal(2), "expected the other two GPUs to be idle and unlabelled")
+		// The node's own utilization lines, so a mismatch reports what it
+		// actually saw rather than only that a count was wrong.
+		var onNode []string
+		for _, line := range strings.Split(exposition, "\n") {
+			if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") &&
+				strings.Contains(line, `Hostname="`+metricsNode+`"`) {
+				onNode = append(onNode, line)
+			}
+		}
+		Expect(idle).To(Equal(2),
+			"expected two of this node's four GPUs to be idle and unlabelled; its lines were:\n"+
+				strings.Join(onNode, "\n"))
 	})
 
 	// The fixture idle-GPU reclamation needs, and the reason per-workload
@@ -152,19 +194,10 @@ var _ = Describe("metrics", Ordered, func() {
 	// wasting it. A fleet where every allocated card reports the same number
 	// cannot ask the question those tools answer.
 	It("reports different utilization for different workloads", func() {
-		utilFor := func(pod string) string {
-			for _, line := range strings.Split(exposition, "\n") {
-				if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") &&
-					strings.Contains(line, `pod="`+pod+`"`) {
-					fields := strings.Fields(line)
-					return fields[len(fields)-1]
-				}
-			}
-			return ""
-		}
-
-		Expect(utilFor("metrics-trainer")).To(Equal("85"), "the pool default should apply")
-		Expect(utilFor("wasteful")).To(Equal("4"), "the matching workload profile should override it")
+		Expect(utilizationFor(exposition, "metrics-trainer")).To(Equal("85"),
+			"the pool default should apply")
+		Expect(utilizationFor(exposition, "wasteful")).To(Equal("4"),
+			"the matching workload profile should override it")
 
 		// The wasteful job is holding most of the framebuffer while doing
 		// nothing, which combined with low utilization is the signal real idle
@@ -180,7 +213,14 @@ var _ = Describe("metrics", Ordered, func() {
 	// ghostgpu has no thermal model, so a wattage nobody declared would be
 	// fabrication rather than simulation.
 	It("omits power and temperature, which this pool never declared", func() {
-		Expect(exposition).NotTo(ContainSubstring("DCGM_FI_DEV_POWER_USAGE"))
-		Expect(exposition).NotTo(ContainSubstring("DCGM_FI_DEV_GPU_TEMP"))
+		// Scoped to this node for the same reason as above: another scenario
+		// declaring a wattage must not make this look like a regression.
+		for _, line := range strings.Split(exposition, "\n") {
+			if !strings.Contains(line, `Hostname="`+metricsNode+`"`) {
+				continue
+			}
+			Expect(line).NotTo(HavePrefix("DCGM_FI_DEV_POWER_USAGE"))
+			Expect(line).NotTo(HavePrefix("DCGM_FI_DEV_GPU_TEMP"))
+		}
 	})
 })

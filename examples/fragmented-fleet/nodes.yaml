@@ -1,0 +1,116 @@
+# Four simulated nodes across three racks.
+#
+# The kwok.x-k8s.io/node annotation is what makes a node simulated. ghostgpu
+# refuses to touch a node without it, whatever the pool selector matches, which
+# is why it is safe to install this in a cluster that also has real GPUs.
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-rack-a0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-rack-a0
+    kubernetes.io/os: linux
+    example: fragmented-fleet
+    rack: a
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-rack-a1
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-rack-a1
+    kubernetes.io/os: linux
+    example: fragmented-fleet
+    rack: a
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-rack-b0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-rack-b0
+    kubernetes.io/os: linux
+    example: fragmented-fleet
+    rack: b
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-rack-c0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-rack-c0
+    kubernetes.io/os: linux
+    example: fragmented-fleet
+    rack: c
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
