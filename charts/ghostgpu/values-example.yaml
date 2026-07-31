@@ -1,0 +1,16 @@
+# A two-node H100 fleet that starts two-thirds full, so a fragmentation
+# scenario exists before any workload is submitted.
+gpuModels:
+  - name: h100
+    spec:
+      productName: NVIDIA H100 80GB HBM3
+      memory: 80Gi
+      computeCapability: "9.0"
+
+gpuPools:
+  - name: h100-pool
+    spec:
+      modelRef: h100
+      gpusPerNode: 8
+      occupancy:
+        - busyPerNode: 2
