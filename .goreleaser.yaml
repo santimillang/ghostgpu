@@ -26,6 +26,11 @@ builds:
 
 archives:
   - id: ghostgpu
+    # Version is deliberately omitted: GitHub's stable "latest" endpoint is
+    # releases/latest/download/<exact-filename>, so a versioned filename means
+    # every release breaks every documented curl command. This is the only
+    # moment that change is free.
+    name_template: "ghostgpu_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
       - goos: windows
