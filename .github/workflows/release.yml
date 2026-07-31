@@ -77,6 +77,33 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # The chart's version and the operator it deploys are both the tag: one
+      # release, one number, nothing for a user to correlate.
+      #
+      # Runs after GoReleaser for the same reason the installer does: --clean
+      # empties dist/, and packaging first would have the .tgz deleted before
+      # it could be published. build-installer below only ever adds to dist/
+      # (mkdir -p, then a single file write), so this step and that one can
+      # share the directory safely regardless of order between themselves.
+      - name: Package and push the chart
+        id: chart
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SEMVER="${VERSION#v}"
+          echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
+
+          make helm helm-tool
+          ./bin/helm package charts/ghostgpu \
+            --version "$SEMVER" --app-version "$VERSION" \
+            --destination dist/
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ./bin/helm push "dist/ghostgpu-${SEMVER}.tgz" \
+              oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts
+          else
+            echo "dry run: packaged but not pushed"
+          fi
+
       # Pinned to the immutable tag rather than :latest, so an installer
       # downloaded today keeps deploying the version it was built against.
       #
@@ -114,13 +141,23 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/install.yaml
+          files: |
+            dist/install.yaml
+            dist/ghostgpu-*.tgz
           generate_release_notes: true
           body: |
             ## Install
 
             ```sh
             kubectl apply -f https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/install.yaml
+            ```
+
+            Or with Helm:
+
+            ```sh
+            helm install ghostgpu oci://ghcr.io/${{ github.repository_owner }}/charts/ghostgpu \
+              --version ${{ steps.chart.outputs.semver }} \
+              --namespace ghostgpu-system --create-namespace
             ```
 
             ghostgpu only ever modifies nodes carrying kwok's
