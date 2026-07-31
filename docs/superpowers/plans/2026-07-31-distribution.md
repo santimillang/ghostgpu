@@ -1684,12 +1684,19 @@ It currently says `make build-cli`, which requires a clone the rest of the quick
 
 ```sh
 # 3. Give your kwok nodes some GPUs
-curl -sSfL https://github.com/santimillang/ghostgpu/releases/latest/download/ghostgpu_Linux_x86_64.tar.gz \
+curl -sSfL https://github.com/santimillang/ghostgpu/releases/latest/download/ghostgpu_linux_amd64.tar.gz \
   | tar xz ghostgpu
 ./ghostgpu up --gpus-per-node 8 --nvlink-domain-size 4
 ```
 
-**Verify the archive name against a real release before committing this.** GoReleaser's default name template may render `Linux_x86_64` or `linux_amd64` depending on version; a curl line with the wrong filename is exactly the broken instruction this task exists to remove. Check with `gh.exe release view --repo santimillang/ghostgpu`, or against the dry-run artifacts from Task 3.
+**The archive filename is verified, not assumed.** Task 3 pins a `name_template` that deliberately omits the version, so the five names are stable across every release:
+
+```
+ghostgpu_linux_amd64.tar.gz   ghostgpu_darwin_amd64.tar.gz   ghostgpu_windows_amd64.zip
+ghostgpu_linux_arm64.tar.gz   ghostgpu_darwin_arm64.tar.gz
+```
+
+A versioned filename would mean no stable `releases/latest/download/` URL at all, so every documented command would break on each release. Use these names verbatim; do not re-derive them.
 
 - [ ] **Step 4: Add a release runbook to CONTRIBUTING.md**
 
