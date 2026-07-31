@@ -121,6 +121,24 @@ spec:
 
 Unset fields default to fully busy when allocated and zero when idle. Power and temperature have no default and are simply absent until declared — ghostgpu has no thermal or power model, and a plausible-looking wattage would be fabrication rather than simulation.
 
+**Different jobs can report differently**, which is what makes a fleet a useful fixture for idle-GPU reclamation and utilisation-based preemption: those tools exist to work out *which* of several jobs is wasting its GPU, and a fleet where every allocated card reports the same number cannot ask that question.
+
+```yaml
+spec:
+  utilization:
+    whenAllocated:
+      gpuUtil: 90                    # the fleet's well-behaved default
+    workloads:
+      - podSelector:
+          matchLabels: {job: notebook}
+        gpuUtil: 4                   # holding a GPU and barely using it
+        fbUsedPercent: 95
+```
+
+Entries are first-match-wins and layer over `whenAllocated`, so one only has to say what makes that workload different. `matchExpressions` works too.
+
+One limitation worth knowing before you build a test around this: rules like `avg_over_time(DCGM_FI_DEV_GPU_UTIL[24h]) < 10` are computed by Prometheus from its own history, which ghostgpu cannot backfill. ghostgpu drives the current value; testing a long-window rule means shortening its window.
+
 ### Starting from a full cluster
 
 Most interesting GPU scheduling bugs are about fragmentation rather than capacity: *seven GPUs are free, but spread 2/2/2/1 across four nodes — does my four-GPU job schedule? Should it? Does my autoscaler add a node, and is that the right call?*

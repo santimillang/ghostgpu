@@ -394,6 +394,121 @@ spec:
                         minimum: 0
                         type: integer
                     type: object
+                  workloads:
+                    description: |-
+                      workloads override whenAllocated for GPUs held by matching pods.
+
+                      This is what makes a fleet heterogeneous, and heterogeneity is the whole
+                      fixture that idle-GPU reclamation and utilization-based preemption need:
+                      the question those tools answer is which of several jobs is wasting its
+                      GPU, and a fleet where every allocated card reports the same number
+                      cannot ask it.
+
+                      Entries are first-match-wins, so ordering is meaningful and an entry with
+                      an empty selector reads as a default when placed last.
+                    items:
+                      description: WorkloadUtilization is what GPUs held by matching
+                        pods report.
+                      properties:
+                        fbUsedPercent:
+                          description: |-
+                            fbUsedPercent is how much of the framebuffer is in use. Reported as
+                            DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived from the
+                            GPU's own memory so the two always sum to it.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        gpuUtil:
+                          description: gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        grEngineActivePercent:
+                          description: |-
+                            grEngineActivePercent becomes the 0-1 ratio DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+                            Expressed as a percentage because a percentage is far easier to write and
+                            read in a manifest than a fraction.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        memCopyUtil:
+                          description: memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                        podSelector:
+                          description: |-
+                            podSelector chooses the pods this entry applies to. An empty selector
+                            matches every pod.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        powerWatts:
+                          description: |-
+                            powerWatts is reported as DCGM_FI_DEV_POWER_USAGE. Omitted entirely when
+                            unset rather than guessed.
+                          format: int32
+                          minimum: 0
+                          type: integer
+                        temperatureC:
+                          description: |-
+                            temperatureC is reported as DCGM_FI_DEV_GPU_TEMP. Omitted entirely when
+                            unset rather than guessed.
+                          format: int32
+                          type: integer
+                        tensorActivePercent:
+                          description: tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+                          format: int32
+                          maximum: 100
+                          minimum: 0
+                          type: integer
+                      type: object
+                    type: array
                 type: object
             required:
             - gpusPerNode

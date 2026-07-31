@@ -37,6 +37,10 @@ type Allocation struct {
 	Device string
 }
 
+// Workloads maps a pod to its labels, so a utilization profile can be matched
+// against the job actually holding a GPU.
+type Workloads map[Holder]map[string]string
+
 // CardsFrom assembles simulated GPU state from objects already in the cluster.
 //
 // Derived, never stored — the same principle `ghostgpu status` follows. The
@@ -49,6 +53,7 @@ func CardsFrom(
 	models map[string]*v1alpha1.GPUModel,
 	published []resourcev1.ResourceSlice,
 	holders map[Allocation]Holder,
+	workloads Workloads,
 ) []Card {
 	specs := make(map[string]*v1alpha1.GPUPool, len(pools))
 	for i := range pools {
@@ -109,7 +114,7 @@ func CardsFrom(
 				busy = false
 			}
 
-			reading := Resolve(pool.Spec.Utilization, busy)
+			reading := Resolve(pool.Spec.Utilization, busy, workloads[holder])
 			reading.XID = xid
 
 			if profile := stringAttr(device, gpu.AttrMIGProfile); profile != "" {

@@ -40,6 +40,11 @@ const (
 	profileLarge     = "3g.40gb"
 	firstDevice      = "gpu-0"
 	testWorkload     = "trainer"
+
+	// Label keys and values the per-workload utilization fixtures select on.
+	jobLabel  = "job"
+	tierLabel = "tier"
+	tierBatch = "batch"
 )
 
 func testModels() map[string]*v1alpha1.GPUModel {
@@ -100,7 +105,7 @@ func TestCardsFromWholeGPUs(t *testing.T) {
 	cards := CardsFrom(
 		testPools(nil), testModels(),
 		[]resourcev1.ResourceSlice{slice(wholeGPU(0), wholeGPU(1))},
-		nil,
+		nil, nil,
 	)
 
 	if len(cards) != 2 {
@@ -130,7 +135,7 @@ func TestCardsFromAttributesHolders(t *testing.T) {
 	cards := CardsFrom(
 		testPools(nil), testModels(),
 		[]resourcev1.ResourceSlice{slice(wholeGPU(0), wholeGPU(1))},
-		holders,
+		holders, nil,
 	)
 
 	if cards[0].Holder.Pod != "" {
@@ -154,7 +159,7 @@ func TestCardsFromTreatsOccupiedAsBusy(t *testing.T) {
 	cards := CardsFrom(
 		testPools(nil), testModels(),
 		[]resourcev1.ResourceSlice{slice(occupiedGPU)},
-		nil,
+		nil, nil,
 	)
 
 	if cards[0].Reading.GPUUtil != 100 {
@@ -190,6 +195,7 @@ func TestCardsFromGroupsMIGInstancesOntoTheirCard(t *testing.T) {
 		map[Allocation]Holder{
 			{Pool: testNode, Device: "gpu-0-3g.40gb"}: {Namespace: defaultNamespace, Pod: testWorkload},
 		},
+		nil,
 	)
 
 	if len(cards) != 2 {
@@ -227,7 +233,7 @@ func TestCardsFromIgnoresForeignSlices(t *testing.T) {
 	foreign := slice(wholeGPU(0))
 	foreign.Labels = map[string]string{PoolLabel: "some-other-pool"}
 
-	cards := CardsFrom(testPools(nil), testModels(), []resourcev1.ResourceSlice{foreign}, nil)
+	cards := CardsFrom(testPools(nil), testModels(), []resourcev1.ResourceSlice{foreign}, nil, nil)
 	if len(cards) != 0 {
 		t.Errorf("cards = %d, want none", len(cards))
 	}
