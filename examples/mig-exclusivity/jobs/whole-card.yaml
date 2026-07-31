@@ -1,0 +1,37 @@
+# Takes the entire GPU as one 7g.80gb instance, consuming all seven compute
+# slices and the whole framebuffer.
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  name: whole-card-claim
+spec:
+  devices:
+    requests:
+      - name: gpu
+        exactly:
+          deviceClassName: ghostgpu-mig-example
+          count: 1
+          allocationMode: ExactCount
+          selectors:
+            - cel:
+                expression: device.attributes["gpu.ghostgpu.dev"].migProfile == "7g.80gb"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: whole-card
+spec:
+  tolerations:
+    - key: kwok.x-k8s.io/node
+      operator: Equal
+      value: fake
+      effect: NoSchedule
+  containers:
+    - name: trainer
+      image: fake-trainer:latest
+      resources:
+        claims:
+          - name: gpu
+  resourceClaims:
+    - name: gpu
+      resourceClaimName: whole-card-claim

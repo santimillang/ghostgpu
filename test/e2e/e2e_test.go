@@ -141,12 +141,19 @@ var _ = Describe("Manager", Ordered, func() {
 
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
+			// Created idempotently rather than with a bare `kubectl create`.
+			// The e2e cluster is reused between runs and only torn down when
+			// the suite passes, so a single failure anywhere would otherwise
+			// leave this binding behind and make every later run fail here —
+			// masking the real result with a stale-state error.
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
 				"--clusterrole=ghostgpu-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
+				"--dry-run=client", "-o", "yaml",
 			)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
+			manifest, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to render the ClusterRoleBinding")
+			Expect(applyYAML(manifest)).To(Succeed(), "Failed to create ClusterRoleBinding")
 
 			By("validating that the metrics service is available")
 			cmd = exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
