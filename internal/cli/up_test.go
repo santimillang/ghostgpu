@@ -41,8 +41,8 @@ func validOptions() UpOptions {
 	return UpOptions{
 		Name:             testModelName,
 		Product:          "NVIDIA-H100-SXM",
-		Memory:           "80Gi",
-		Compute:          "9.0",
+		Memory:           h100Memory,
+		Compute:          h100Compute,
 		GPUsPerNode:      8,
 		NVLinkDomainSize: 4,
 		NodeSelector:     "type=kwok",
@@ -70,8 +70,8 @@ func TestBuildManifestsProducesModelAndPool(t *testing.T) {
 	if model.Spec.ProductName != "NVIDIA-H100-SXM" {
 		t.Errorf("productName = %q", model.Spec.ProductName)
 	}
-	if model.Spec.Memory.Cmp(resource.MustParse("80Gi")) != 0 {
-		t.Errorf("memory = %v, want 80Gi", model.Spec.Memory.String())
+	if model.Spec.Memory.Cmp(resource.MustParse(h100Memory)) != 0 {
+		t.Errorf("memory = %v, want %s", model.Spec.Memory.String(), h100Memory)
 	}
 
 	pool, ok := objs[1].(*v1alpha1.GPUPool)
@@ -84,7 +84,7 @@ func TestBuildManifestsProducesModelAndPool(t *testing.T) {
 	if pool.Spec.GPUsPerNode != 8 {
 		t.Errorf("gpusPerNode = %d, want 8", pool.Spec.GPUsPerNode)
 	}
-	if pool.Spec.NodeSelector[nodeTypeKey] != "kwok" {
+	if pool.Spec.NodeSelector[nodeTypeKey] != nodeTypeKwok {
 		t.Errorf("nodeSelector = %v", pool.Spec.NodeSelector)
 	}
 }
@@ -98,7 +98,7 @@ func TestBuildManifestsSetsTypeMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantKinds := []string{"GPUModel", "GPUPool"}
+	wantKinds := []string{kindGPUModel, kindGPUPool}
 	for i, want := range wantKinds {
 		gvk := objs[i].GetObjectKind().GroupVersionKind()
 		if gvk.Kind != want {
@@ -185,7 +185,7 @@ func TestBuildManifestsOmitsNVLinkWhenZero(t *testing.T) {
 func migOptions() UpOptions {
 	opts := validOptions()
 	opts.Product = "NVIDIA-H100-80GB-HBM3"
-	opts.SharingMode = "mig"
+	opts.SharingMode = string(v1alpha1.SharingModeMIG)
 	return opts
 }
 
@@ -495,7 +495,7 @@ func TestParseSelector(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := map[string]string{nodeTypeKey: "kwok", "zone": "us-east-1a"}
+		want := map[string]string{nodeTypeKey: nodeTypeKwok, "zone": "us-east-1a"}
 		if len(got) != len(want) {
 			t.Fatalf("got %v, want %v", got, want)
 		}

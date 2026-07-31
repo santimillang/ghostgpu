@@ -1,0 +1,102 @@
+# The "real" cluster that `ghostgpu capture` is pointed at.
+#
+# Deliberately not a plain whole-GPU pool: this shape exercises every derivation
+# capture performs at once — the physical GPU count comes from the shared
+# counter sets (gpu.count reports 0 under the mixed MIG strategy), the per-GPU
+# partition comes from the node's nvidia.com/mig-* capacity, and the NVLink
+# domain size comes from device attributes no node label carries.
+#
+# Two nodes, so the capture has to reproduce a fleet rather than a machine.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: capture-h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: capture-source-pool
+spec:
+  modelRef: capture-h100
+  nodeSelector:
+    type: capture-source
+  gpusPerNode: 4
+  sharingMode: mig
+  topology:
+    nvlinkDomainSize: 2
+  migPartition:
+    - profile: 3g.40gb
+      count: 1
+    - profile: 1g.10gb
+      count: 4
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-capture-0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-capture-0
+    kubernetes.io/os: linux
+    type: capture-source
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable:
+    cpu: "96"
+    memory: 1024Gi
+    pods: "110"
+  capacity:
+    cpu: "96"
+    memory: 1024Gi
+    pods: "110"
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-capture-1
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-capture-1
+    kubernetes.io/os: linux
+    type: capture-source
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable:
+    cpu: "96"
+    memory: 1024Gi
+    pods: "110"
+  capacity:
+    cpu: "96"
+    memory: 1024Gi
+    pods: "110"
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running
