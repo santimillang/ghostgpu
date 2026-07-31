@@ -119,6 +119,21 @@ type GPUPoolSpec struct {
 	// +optional
 	MIGPartition []MIGPartitionEntry `json:"migPartition,omitempty"`
 
+	// occupancy declares how much of the fleet is already busy before any
+	// workload is submitted.
+	//
+	// Most interesting GPU scheduling bugs are about fragmentation rather than
+	// capacity — "seven GPUs are free but spread 2/2/2/1 across four nodes;
+	// does my four-GPU job schedule?" — and that situation cannot be built by
+	// submitting filler pods, because where the filler lands is the scheduler's
+	// choice and so the scenario under test is not reproducible.
+	//
+	// Entries are matched first-match-wins, so a list expresses a fleet that is
+	// unevenly full. An entry with no selector matches every node, which makes
+	// it a default when placed last.
+	// +optional
+	Occupancy []OccupancyEntry `json:"occupancy,omitempty"`
+
 	// sharingMode is how each physical GPU is divided.
 	//
 	// "none" advertises whole GPUs. "mig" partitions each GPU into MIG
@@ -149,6 +164,27 @@ type MIGPartitionEntry struct {
 	// +kubebuilder:validation:Maximum=8
 	// +required
 	Count int32 `json:"count"`
+}
+
+// OccupancyEntry declares how many GPUs are already busy on matching nodes.
+type OccupancyEntry struct {
+	// nodeSelector chooses which of the pool's nodes this entry applies to.
+	// Empty matches every node in the pool.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// busyPerNode is how many of each matching node's physical GPUs are
+	// already occupied. It must not exceed gpusPerNode.
+	//
+	// Under sharingMode "mig" this still counts whole cards: every instance
+	// carved from an occupied GPU becomes unavailable. Anything else would be
+	// wrong rather than merely simpler, because MIG instances draw on shared
+	// counters — leaving one profile allocatable on an "occupied" card would
+	// mean the card was not occupied at all.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=128
+	// +required
+	BusyPerNode int32 `json:"busyPerNode"`
 }
 
 // SharingMode is how a physical GPU is divided among workloads.
@@ -207,6 +243,16 @@ type GPUPoolStatus struct {
 	// than cards.
 	// +optional
 	DevicesPublished int32 `json:"devicesPublished,omitempty"`
+
+	// gpusOccupied is how many physical GPUs across all matched nodes this
+	// pool has declared busy, and so how much of the fleet was never available
+	// in the first place.
+	//
+	// Reported separately from devicesPublished because the two answer
+	// different questions: how much hardware exists, and how much of it a
+	// workload could actually have.
+	// +optional
+	GPUsOccupied int32 `json:"gpusOccupied,omitempty"`
 
 	// migProfilesPublished is how many MIG profiles each simulated GPU is
 	// partitioned into. Zero when the pool does not use MIG.

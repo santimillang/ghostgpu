@@ -117,12 +117,20 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	// Declared occupancy larger than the hardware carries is a claim about a
+	// fleet that does not exist. Simulating the nearest one that does would
+	// hide the mistake inside the very scenario the user is reasoning about.
+	if err := gpu.ValidateOccupancy(&pool); err != nil {
+		setReady(&pool, metav1.ConditionFalse, "OccupancyInvalid", err.Error())
+		return ctrl.Result{}, r.Status().Update(ctx, &pool)
+	}
+
 	var nodes corev1.NodeList
 	if err := r.List(ctx, &nodes, client.MatchingLabels(pool.Spec.NodeSelector)); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	var matched, devices int32
+	var matched, devices, occupied int32
 	live := make(map[string]struct{}, len(nodes.Items))
 
 	for i := range nodes.Items {
@@ -136,15 +144,20 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		matched++
 
+		// Occupancy is per node, because a fleet that is evenly full is not a
+		// fragmentation scenario.
+		busy := gpu.BusyGPUs(&pool, node)
+		occupied += busy
+
 		if pool.Spec.Advertise.DRAEnabled() {
-			published, err := r.reconcileSlices(ctx, &pool, &model, table, node.Name, live)
+			published, err := r.reconcileSlices(ctx, &pool, &model, table, node.Name, busy, live)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 			devices += published
 		}
 
-		if err := r.reconcileNode(ctx, &pool, &model, table, node); err != nil {
+		if err := r.reconcileNode(ctx, &pool, &model, table, node, busy); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -159,18 +172,23 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	pool.Status.ObservedGeneration = pool.Generation
 	pool.Status.NodesMatched = matched
 	pool.Status.DevicesPublished = devices
+	pool.Status.GPUsOccupied = occupied
 	pool.Status.MIGProfilesPublished = int32(len(table.Profiles))
-	setReady(&pool, metav1.ConditionTrue, "Reconciled", summarize(&pool, devices, matched, table))
+	setReady(&pool, metav1.ConditionTrue, "Reconciled", summarize(&pool, devices, matched, occupied, table))
 
 	return ctrl.Result{}, r.Status().Update(ctx, &pool)
 }
 
-func summarize(pool *ghostgpuv1alpha1.GPUPool, devices, matched int32, table mig.Table) string {
+func summarize(pool *ghostgpuv1alpha1.GPUPool, devices, matched, occupied int32, table mig.Table) string {
+	summary := fmt.Sprintf("simulated %d GPUs across %d nodes", devices, matched)
 	if pool.Spec.MIGEnabled() {
-		return fmt.Sprintf("simulated %d MIG instances across %d nodes (%d profiles per GPU)",
+		summary = fmt.Sprintf("simulated %d MIG instances across %d nodes (%d profiles per GPU)",
 			devices, matched, len(table.Profiles))
 	}
-	return fmt.Sprintf("simulated %d GPUs across %d nodes", devices, matched)
+	if occupied > 0 {
+		summary += fmt.Sprintf("; %d GPUs declared occupied", occupied)
+	}
+	return summary
 }
 
 // reconcileSlices publishes one node's DRA slices and records their names as
@@ -184,10 +202,11 @@ func (r *GPUPoolReconciler) reconcileSlices(
 	model *ghostgpuv1alpha1.GPUModel,
 	table mig.Table,
 	nodeName string,
+	busy int32,
 	live map[string]struct{},
 ) (int32, error) {
 	if !pool.Spec.MIGEnabled() {
-		if err := r.applySlice(ctx, pool, gpu.BuildResourceSlice(pool, model, nodeName)); err != nil {
+		if err := r.applySlice(ctx, pool, gpu.BuildResourceSlice(pool, model, nodeName, busy)); err != nil {
 			return 0, err
 		}
 		live[gpu.SliceName(pool.Name, nodeName)] = struct{}{}
@@ -195,7 +214,7 @@ func (r *GPUPoolReconciler) reconcileSlices(
 	}
 
 	var devices int32
-	for _, desired := range gpu.BuildMIGSlices(pool, model, table, nodeName) {
+	for _, desired := range gpu.BuildMIGSlices(pool, model, table, nodeName, busy) {
 		if err := r.applySlice(ctx, pool, desired); err != nil {
 			return 0, err
 		}
@@ -263,14 +282,21 @@ func (r *GPUPoolReconciler) reconcileNode(
 	model *ghostgpuv1alpha1.GPUModel,
 	table mig.Table,
 	node *corev1.Node,
+	busy int32,
 ) error {
 	if pool.Spec.Advertise.ExtendedResourceEnabled() {
-		want := gpu.NodeResources(pool, table)
+		// Capacity is what the hardware has; allocatable is what is left for
+		// this scheduler once declared occupancy is taken out. Keeping the two
+		// apart is the honest encoding rather than a trick: it is exactly what
+		// the distinction means for cpu and memory under --system-reserved.
+		capacity := gpu.NodeResources(pool, table)
+		allocatable := gpu.NodeAllocatable(pool, table, busy)
 
-		if !resourcesMatch(node.Status.Capacity, want) || !resourcesMatch(node.Status.Allocatable, want) {
+		if !resourcesMatch(node.Status.Capacity, capacity) ||
+			!resourcesMatch(node.Status.Allocatable, allocatable) {
 			patched := node.DeepCopy()
-			patched.Status.Capacity = applyGPUResources(patched.Status.Capacity, want)
-			patched.Status.Allocatable = applyGPUResources(patched.Status.Allocatable, want)
+			patched.Status.Capacity = applyGPUResources(patched.Status.Capacity, capacity)
+			patched.Status.Allocatable = applyGPUResources(patched.Status.Allocatable, allocatable)
 
 			if err := r.Status().Patch(ctx, patched, client.MergeFrom(node)); err != nil {
 				return err

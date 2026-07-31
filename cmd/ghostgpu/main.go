@@ -226,6 +226,7 @@ func runUp(args []string, stdout, stderr io.Writer) error {
 		opts        cli.UpOptions
 		gpus        int
 		nvlink      int
+		busy        int
 		dryRun      bool
 		waitTimeout time.Duration
 	)
@@ -246,6 +247,9 @@ func runUp(args []string, stdout, stderr io.Writer) error {
 	fs.StringVar(&opts.MIGPartition, "mig-partition", "",
 		"declare which MIG instances exist per GPU, e.g. 3g.40gb=1,1g.10gb=4; "+
 			"empty advertises every profile as a possibility instead")
+	fs.IntVar(&busy, "busy-per-node", 0,
+		"GPUs per node to mark already occupied, so the fleet starts partly full; "+
+			"uneven occupancy needs spec.occupancy in YAML")
 	fs.BoolVar(&opts.DRA, "dra", true, "publish DRA ResourceSlices")
 	fs.BoolVar(&opts.ExtendedResource, "extended-resource", true, "advertise nvidia.com/gpu node capacity")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the manifests as YAML instead of applying them")
@@ -257,6 +261,7 @@ func runUp(args []string, stdout, stderr io.Writer) error {
 	}
 	opts.GPUsPerNode = int32(gpus)
 	opts.NVLinkDomainSize = int32(nvlink)
+	opts.BusyPerNode = int32(busy)
 
 	objs, err := cli.BuildManifests(opts)
 	if err != nil {

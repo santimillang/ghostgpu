@@ -42,6 +42,7 @@ func main() {
 	product := flag.String("product", "NVIDIA-H100-80GB-HBM3", "GPU product name")
 	memory := flag.String("memory", "80Gi", "memory per GPU")
 	node := flag.String("node", "node-a", "node name")
+	busy := flag.Int("busy", 0, "physical GPUs to mark occupied, so the device taints can be checked too")
 	flag.Parse()
 
 	model := &v1alpha1.GPUModel{
@@ -69,7 +70,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	for i, slice := range gpu.BuildMIGSlices(pool, model, table, *node) {
+	for i, slice := range gpu.BuildMIGSlices(pool, model, table, *node, int32(*busy)) {
 		slice.APIVersion = "resource.k8s.io/v1"
 		slice.Kind = "ResourceSlice"
 

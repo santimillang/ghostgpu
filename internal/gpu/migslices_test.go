@@ -86,7 +86,7 @@ func TestBuildMIGSlicesShardingBoundaries(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%d gpus", tc.gpus), func(t *testing.T) {
 			pool := testPool(tc.gpus, 4, true)
-			slices := BuildMIGSlices(pool, testModel(), table, nodeA)
+			slices := BuildMIGSlices(pool, testModel(), table, nodeA, 0)
 
 			counters, devices := partition(slices)
 
@@ -117,7 +117,7 @@ func TestBuildMIGSlicesRespectsAPILimits(t *testing.T) {
 
 	for _, gpus := range []int32{1, 8, 9, 16, 64, 128} {
 		t.Run(fmt.Sprintf("%d gpus", gpus), func(t *testing.T) {
-			slices := BuildMIGSlices(testPool(gpus, 4, true), testModel(), table, nodeA)
+			slices := BuildMIGSlices(testPool(gpus, 4, true), testModel(), table, nodeA, 0)
 
 			for _, s := range slices {
 				if len(s.Spec.SharedCounters) > MaxCounterSetsPerSlice {
@@ -141,7 +141,7 @@ func TestBuildMIGSlicesRespectsAPILimits(t *testing.T) {
 // number published or the scheduler waits forever for slices that never come.
 func TestBuildMIGSlicesShareOnePoolWithCorrectCount(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA, 0)
 
 	for _, s := range slices {
 		if s.Spec.Pool.Name != nodeA {
@@ -162,7 +162,7 @@ func TestBuildMIGSlicesShareOnePoolWithCorrectCount(t *testing.T) {
 
 func TestBuildMIGSlicesNamesAreUnique(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(128, 8, true), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(128, 8, true), testModel(), table, nodeA, 0)
 
 	seen := make(map[string]struct{}, len(slices))
 	for _, s := range slices {
@@ -178,7 +178,7 @@ func TestBuildMIGSlicesNamesAreUnique(t *testing.T) {
 // rejected, since counter set names resolve pool-wide.
 func TestBuildMIGSlicesEmitOneCounterSetPerGPU(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA, 0)
 	counters, _ := partition(slices)
 
 	seen := map[string]struct{}{}
@@ -219,7 +219,7 @@ func TestBuildMIGSlicesEmitOneCounterSetPerGPU(t *testing.T) {
 // the simulation would be worthless.
 func TestBuildMIGSlicesDevicesConsumeTheirGPUsCounters(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(2, 0, false), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(2, 0, false), testModel(), table, nodeA, 0)
 	_, devices := partition(slices)
 
 	found := 0
@@ -269,7 +269,7 @@ func TestBuildMIGSlicesDevicesConsumeTheirGPUsCounters(t *testing.T) {
 func TestBuildMIGSlicesCounterReferencesSurviveShardBoundaries(t *testing.T) {
 	table := h100Table(t)
 	// 11 GPUs x 6 profiles = 66 devices, so the second slice starts mid-GPU.
-	slices := BuildMIGSlices(testPool(11, 4, true), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(11, 4, true), testModel(), table, nodeA, 0)
 	_, devices := partition(slices)
 
 	if len(devices) < 2 {
@@ -297,7 +297,7 @@ func TestBuildMIGSlicesCounterReferencesSurviveShardBoundaries(t *testing.T) {
 
 func TestBuildMIGSlicesDeviceAttributes(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(8, 4, true), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(8, 4, true), testModel(), table, nodeA, 0)
 	_, devices := partition(slices)
 
 	d := devices[0].Spec.Devices[0]
@@ -348,8 +348,8 @@ func TestBuildMIGSlicesDeviceAttributes(t *testing.T) {
 func TestBuildMIGSlicesAreDeterministic(t *testing.T) {
 	table := h100Table(t)
 
-	first := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA)
-	second := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA)
+	first := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA, 0)
+	second := BuildMIGSlices(testPool(16, 4, true), testModel(), table, nodeA, 0)
 
 	if len(first) != len(second) {
 		t.Fatalf("slice count differs: %d vs %d", len(first), len(second))
@@ -372,7 +372,7 @@ func TestBuildMIGSlicesAreDeterministic(t *testing.T) {
 
 func TestBuildMIGSlicesCarryPoolLabelViaName(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(8, 4, true), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(8, 4, true), testModel(), table, nodeA, 0)
 
 	for _, s := range slices {
 		if s.Name == "" {
@@ -385,7 +385,7 @@ func TestBuildMIGSlicesCarryPoolLabelViaName(t *testing.T) {
 // function reachable from anywhere and must not emit an empty slice that the
 // API would reject.
 func TestBuildMIGSlicesZeroGPUs(t *testing.T) {
-	slices := BuildMIGSlices(testPool(0, 0, false), testModel(), h100Table(t), nodeA)
+	slices := BuildMIGSlices(testPool(0, 0, false), testModel(), h100Table(t), nodeA, 0)
 	if len(slices) != 0 {
 		t.Errorf("got %d slices for 0 GPUs, want none", len(slices))
 	}
@@ -402,7 +402,7 @@ func TestBuildMIGSlicesWithDeclaredPartition(t *testing.T) {
 		{Profile: profileSmallest, Count: 4},
 	}
 
-	slices := BuildMIGSlices(pool, testModel(), table, nodeA)
+	slices := BuildMIGSlices(pool, testModel(), table, nodeA, 0)
 	counters, devices := partition(slices)
 
 	if len(counters) != 1 {
@@ -438,7 +438,7 @@ func TestBuildMIGSlicesWithDeclaredPartition(t *testing.T) {
 // this is the 7g.80gb case, which is the entire GPU.
 func TestBuildMIGSlicesWholeGPUProfile(t *testing.T) {
 	table := h100Table(t)
-	slices := BuildMIGSlices(testPool(1, 0, false), testModel(), table, nodeA)
+	slices := BuildMIGSlices(testPool(1, 0, false), testModel(), table, nodeA, 0)
 	_, devices := partition(slices)
 
 	var whole *resourcev1.Device

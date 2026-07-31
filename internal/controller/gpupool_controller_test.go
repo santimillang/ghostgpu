@@ -22,6 +22,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -326,5 +327,61 @@ var _ = Describe("GPUPool", func() {
 		r := &GPUPoolReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: poolKey})
 		Expect(err).NotTo(HaveOccurred())
+	})
+
+	// Occupancy has to reach the API server intact, and be rejected when it
+	// describes a fleet the hardware cannot be. envtest runs no scheduler, so
+	// what the taints then cause is asserted end to end instead.
+	Context("occupancy", func() {
+		setOccupancy := func(entries ...ghostgpuv1alpha1.OccupancyEntry) error {
+			pool := &ghostgpuv1alpha1.GPUPool{}
+			Expect(k8sClient.Get(ctx, poolKey, pool)).To(Succeed())
+			pool.Spec.Occupancy = entries
+			return k8sClient.Update(ctx, pool)
+		}
+
+		It("round-trips through the API server", func() {
+			Expect(setOccupancy(
+				ghostgpuv1alpha1.OccupancyEntry{
+					NodeSelector: map[string]string{"rack": "a"},
+					BusyPerNode:  6,
+				},
+				ghostgpuv1alpha1.OccupancyEntry{BusyPerNode: 2},
+			)).To(Succeed())
+
+			fetched := &ghostgpuv1alpha1.GPUPool{}
+			Expect(k8sClient.Get(ctx, poolKey, fetched)).To(Succeed())
+			Expect(fetched.Spec.Occupancy).To(HaveLen(2))
+			Expect(fetched.Spec.Occupancy[0].BusyPerNode).To(Equal(int32(6)))
+			Expect(fetched.Spec.Occupancy[0].NodeSelector).To(HaveKeyWithValue("rack", "a"))
+			// Order is load-bearing: entries are first-match-wins, so a
+			// selector-less default has to stay last.
+			Expect(fetched.Spec.Occupancy[1].NodeSelector).To(BeEmpty())
+		})
+
+		It("rejects a negative count at the API server", func() {
+			Expect(setOccupancy(ghostgpuv1alpha1.OccupancyEntry{BusyPerNode: -1})).NotTo(Succeed())
+		})
+
+		// Occupancy larger than the node has cannot be caught by the CRD
+		// schema, because it depends on another field. Publishing the nearest
+		// fleet that does exist would hide the mistake inside the scenario the
+		// user is reasoning about, so the pool reports it and publishes nothing.
+		It("reports occupancy the pool's own hardware cannot carry", func() {
+			Expect(setOccupancy(ghostgpuv1alpha1.OccupancyEntry{BusyPerNode: 9})).To(Succeed())
+
+			r := &GPUPoolReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: poolKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			fetched := &ghostgpuv1alpha1.GPUPool{}
+			Expect(k8sClient.Get(ctx, poolKey, fetched)).To(Succeed())
+
+			cond := meta.FindStatusCondition(fetched.Status.Conditions, ConditionReady)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal("OccupancyInvalid"))
+			Expect(cond.Message).To(ContainSubstring("8"), "the message should say what the pool actually has")
+		})
 	})
 })

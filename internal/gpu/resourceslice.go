@@ -76,10 +76,21 @@ func intAttr(i int64) resourcev1.DeviceAttribute {
 // MaxDevicesPerSlice, avoiding the sharding that a cluster-wide pool would
 // eventually force.
 //
-// The result is a pure function of its inputs: the same pool, model, and node
-// always produce an identical slice, so a restarted operator republishes
-// rather than churns.
-func BuildResourceSlice(pool *v1alpha1.GPUPool, model *v1alpha1.GPUModel, nodeName string) *resourcev1.ResourceSlice {
+// busy is how many of the node's GPUs are declared already occupied. The first
+// that many carry a device taint, lowest index first, so that the same
+// declaration always produces the same fragmentation rather than one that
+// depends on iteration order.
+//
+// The result is a pure function of its inputs: the same pool, model, node, and
+// occupancy always produce an identical slice, so a restarted operator
+// republishes rather than churns — which is also what makes declared occupancy
+// survive a restart, the property issue #25 asked for.
+func BuildResourceSlice(
+	pool *v1alpha1.GPUPool,
+	model *v1alpha1.GPUModel,
+	nodeName string,
+	busy int32,
+) *resourcev1.ResourceSlice {
 	devices := make([]resourcev1.Device, 0, pool.Spec.GPUsPerNode)
 
 	for i := range pool.Spec.GPUsPerNode {
@@ -99,13 +110,17 @@ func BuildResourceSlice(pool *v1alpha1.GPUPool, model *v1alpha1.GPUModel, nodeNa
 			attrs[AttrNUMANode] = intAttr(NUMANode(i, pool.Spec.Topology.NVLinkDomainSize))
 		}
 
-		devices = append(devices, resourcev1.Device{
+		device := resourcev1.Device{
 			Name:       DeviceName(nodeName, i),
 			Attributes: attrs,
 			Capacity: map[resourcev1.QualifiedName]resourcev1.DeviceCapacity{
 				"memory": {Value: model.Spec.Memory},
 			},
-		})
+		}
+		if i < busy {
+			device.Taints = []resourcev1.DeviceTaint{OccupiedTaint()}
+		}
+		devices = append(devices, device)
 	}
 
 	node := nodeName
