@@ -131,14 +131,51 @@ func TestRenderPoolsSubtractsOccupiedFromFree(t *testing.T) {
 
 	// Assert on fields rather than spacing: the column widths are the
 	// tabwriter's business and would make this brittle for no gain.
-	// 4 devices, 2 occupied, 1 allocated, so exactly 1 is genuinely free.
+	// 4 devices, none faulted, 2 occupied, 1 allocated, so 1 is genuinely free.
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("want a header and one row, got:\n%s", out)
 	}
 	fields := strings.Fields(lines[1])
-	if got := strings.Join(fields[len(fields)-4:], " "); got != "4 2 1 1" {
-		t.Errorf("devices/occupied/allocated/free = %q, want \"4 2 1 1\":\n%s", got, out)
+	if got := strings.Join(fields[len(fields)-5:], " "); got != "4 0 2 1 1" {
+		t.Errorf("devices/faulted/occupied/allocated/free = %q, want \"4 0 2 1 1\":\n%s", got, out)
+	}
+}
+
+func faultedDevice(name string) resourcev1.Device {
+	return resourcev1.Device{
+		Name:   name,
+		Taints: []resourcev1.DeviceTaint{gpu.FaultedTaint(v1alpha1.FaultEffectEvict, 79)},
+	}
+}
+
+// Faulted is a third state, not a flavour of occupied. A broken GPU is not
+// merely busy, and conflating them would misreport why nothing can be placed.
+func TestBuildReportSeparatesFaultedFromOccupied(t *testing.T) {
+	report := BuildReport(
+		[]v1alpha1.GPUPool{statusPool("h100-pool", v1alpha1.SharingModeNone, 1, 3)},
+		[]resourcev1.ResourceSlice{
+			deviceSlice("h100-pool", testNode,
+				faultedDevice("gpu-0"), occupiedDevice("gpu-1"), wholeDevice("gpu-2")),
+		},
+		nil,
+	)
+
+	p := report.Pools[0]
+	if p.Faulted != 1 || p.Occupied != 1 {
+		t.Errorf("faulted/occupied = %d/%d, want 1/1", p.Faulted, p.Occupied)
+	}
+
+	out := RenderDevices(report, "")
+	if !strings.Contains(out, "faulted") {
+		t.Errorf("faulted device not labelled:\n%s", out)
+	}
+	if !strings.Contains(out, "(failed)") {
+		t.Errorf("faulted device should say it failed, not name a pod:\n%s", out)
+	}
+	// Free has to account for both, or the fleet looks roomier than it is.
+	if !strings.Contains(RenderPools(report), "3") {
+		t.Errorf("pool summary missing device count:\n%s", RenderPools(report))
 	}
 }
 

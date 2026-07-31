@@ -119,6 +119,19 @@ type GPUPoolSpec struct {
 	// +optional
 	MIGPartition []MIGPartitionEntry `json:"migPartition,omitempty"`
 
+	// faults declares GPUs that have failed.
+	//
+	// Hardware failure is one of the hardest things to test for, because it
+	// cannot be arranged on demand: you cannot ask a production GPU to fall off
+	// the bus to see whether your remediation drains the node. Declaring it
+	// makes that scenario reproducible.
+	//
+	// Faults and occupancy are independent declarations, both applied
+	// lowest-index-first, and a fault wins where they overlap — so "three busy,
+	// one faulted" means the failure happened to a GPU that was working.
+	// +optional
+	Faults []FaultEntry `json:"faults,omitempty"`
+
 	// utilization declares what a simulated GPU reports through the
 	// DCGM-shaped metrics endpoint.
 	//
@@ -174,6 +187,58 @@ type MIGPartitionEntry struct {
 	// +kubebuilder:validation:Maximum=8
 	// +required
 	Count int32 `json:"count"`
+}
+
+// FaultEffect is what a failure does to work on the GPU.
+type FaultEffect string
+
+const (
+	// FaultEffectEvict models a GPU that is gone: device loss, or an
+	// uncorrectable ECC error. Anything running on it is thrown off and its
+	// ResourceClaim released, so the workload can be rescheduled onto healthy
+	// hardware — which is the behaviour a remediation or requeueing system
+	// under test actually needs to exercise.
+	FaultEffectEvict FaultEffect = "Evict"
+
+	// FaultEffectUnschedulable models a GPU that still runs but must take no
+	// new work, such as one with a row remap pending a reboot. Work already on
+	// it is left alone.
+	FaultEffectUnschedulable FaultEffect = "Unschedulable"
+)
+
+// FaultEntry declares failed GPUs on matching nodes.
+type FaultEntry struct {
+	// nodeSelector chooses which of the pool's nodes this entry applies to.
+	// Empty matches every node in the pool.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// gpus is how many of each matching node's physical GPUs have failed,
+	// counted from the lowest index so a scenario is reproducible.
+	//
+	// Under sharingMode "mig" this counts whole cards, as occupancy does:
+	// every instance carved from a failed GPU fails with it, because they are
+	// the same silicon.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=128
+	// +required
+	GPUs int32 `json:"gpus"`
+
+	// effect is what the failure does to work on the GPU.
+	// +kubebuilder:validation:Enum=Evict;Unschedulable
+	// +kubebuilder:default=Evict
+	// +optional
+	Effect FaultEffect `json:"effect,omitempty"`
+
+	// xid is the NVIDIA XID error code to report on DCGM_FI_DEV_XID_ERRORS for
+	// the failed GPUs, which is the signal most remediation tooling watches.
+	// 79 is "GPU has fallen off the bus"; 48 is a double-bit ECC error.
+	//
+	// Zero reports no error, which models a GPU that has been taken out of
+	// service without the driver having logged anything.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	XID int32 `json:"xid,omitempty"`
 }
 
 // UtilizationSpec is what a simulated GPU reports in each of its two states.
@@ -334,6 +399,11 @@ type GPUPoolStatus struct {
 	// workload could actually have.
 	// +optional
 	GPUsOccupied int32 `json:"gpusOccupied,omitempty"`
+
+	// gpusFaulted is how many physical GPUs across all matched nodes this pool
+	// has declared failed.
+	// +optional
+	GPUsFaulted int32 `json:"gpusFaulted,omitempty"`
 
 	// migProfilesPublished is how many MIG profiles each simulated GPU is
 	// partitioned into. Zero when the pool does not use MIG.

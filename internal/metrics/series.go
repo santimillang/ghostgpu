@@ -42,6 +42,11 @@ type Reading struct {
 	// than simulation.
 	PowerWatts   *int32
 	TemperatureC *int32
+
+	// XID is the last error the driver reported, zero on healthy hardware.
+	// This is the signal most GPU remediation actually watches, which is why
+	// fault injection sets it rather than inventing a channel of its own.
+	XID int32
 }
 
 // Holder is the workload a device belongs to, as the scheduler recorded it.
@@ -111,12 +116,14 @@ func Build(cards []Card) []Series {
 		if card.Reading.TemperatureC != nil {
 			out = append(out, Series{GPUTemp, float64(*card.Reading.TemperatureC), base})
 		}
-		out = append(out, Series{XIDErrors, 0, base})
+		out = append(out, Series{XIDErrors, float64(card.Reading.XID), base})
 
 		for _, instance := range card.Instances {
 			labels := instanceLabels(card, instance)
 			out = append(out, utilizationSeries(labels, instance.Reading, instance.MemoryMiB)...)
-			out = append(out, Series{XIDErrors, 0, labels})
+			// An instance inherits its card's XID: the failure is the silicon's,
+			// and every instance on it is affected.
+			out = append(out, Series{XIDErrors, float64(card.Reading.XID), labels})
 		}
 	}
 
