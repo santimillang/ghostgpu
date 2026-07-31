@@ -38,6 +38,7 @@ import (
 
 	ghostgpuv1alpha1 "github.com/santimillang/ghostgpu/api/v1alpha1"
 	"github.com/santimillang/ghostgpu/internal/controller"
+	"github.com/santimillang/ghostgpu/internal/metrics"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -65,12 +66,15 @@ func main() {
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
 	var probeAddr string
+	var gpuMetricsAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&gpuMetricsAddr, "gpu-metrics-bind-address", metrics.DefaultAddr,
+		"The address the DCGM-shaped simulated GPU metrics endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -192,6 +196,19 @@ func main() {
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
+
+	// The simulated GPU metrics are served separately from the operator's own,
+	// on dcgm-exporter's conventional port. Two reasons: an existing scrape
+	// config finds them without being rewritten, and a fleet's telemetry stays
+	// distinct from ghostgpu's internal controller-runtime metrics, which
+	// nobody scraping GPU utilization wants mixed in.
+	if err := mgr.Add(&metrics.Server{
+		Addr:     gpuMetricsAddr,
+		Exporter: &metrics.Exporter{Reader: mgr.GetClient()},
+	}); err != nil {
+		setupLog.Error(err, "Failed to set up the simulated GPU metrics server")
+		os.Exit(1)
+	}
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "Failed to set up health check")

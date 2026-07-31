@@ -119,6 +119,16 @@ type GPUPoolSpec struct {
 	// +optional
 	MIGPartition []MIGPartitionEntry `json:"migPartition,omitempty"`
 
+	// utilization declares what a simulated GPU reports through the
+	// DCGM-shaped metrics endpoint.
+	//
+	// Declared rather than randomised on purpose. A metric that jitters cannot
+	// be asserted against, and the point of these numbers is to drive a rule
+	// under test — "scale down when utilization stays below 20% for ten
+	// minutes" is only testable if the fleet reliably does that.
+	// +optional
+	Utilization *UtilizationSpec `json:"utilization,omitempty"`
+
 	// occupancy declares how much of the fleet is already busy before any
 	// workload is submitted.
 	//
@@ -164,6 +174,77 @@ type MIGPartitionEntry struct {
 	// +kubebuilder:validation:Maximum=8
 	// +required
 	Count int32 `json:"count"`
+}
+
+// UtilizationSpec is what a simulated GPU reports in each of its two states.
+type UtilizationSpec struct {
+	// whenAllocated is reported by a GPU the scheduler has given to a pod, and
+	// by one declared occupied. Defaults to fully busy.
+	// +optional
+	WhenAllocated *UtilizationSample `json:"whenAllocated,omitempty"`
+
+	// whenIdle is reported by a GPU nothing holds. Defaults to zero, which is
+	// what an idle GPU genuinely draws in every field ghostgpu models.
+	// +optional
+	WhenIdle *UtilizationSample `json:"whenIdle,omitempty"`
+}
+
+// UtilizationSample is one set of readings.
+//
+// Every field is a pointer so that an explicit zero is distinguishable from
+// "unset", which matters because zero is a meaningful reading here rather than
+// merely a default.
+//
+// Power and temperature are deliberately not defaulted. ghostgpu has no thermal
+// or power model, and a plausible-looking wattage would be fabrication rather
+// than simulation — so those series are simply absent until declared. The
+// utilization and framebuffer fields do default, because zero for an idle GPU
+// is a fact rather than a guess.
+type UtilizationSample struct {
+	// gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	GPUUtil *int32 `json:"gpuUtil,omitempty"`
+
+	// memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MemCopyUtil *int32 `json:"memCopyUtil,omitempty"`
+
+	// fbUsedPercent is how much of the framebuffer is in use. Reported as
+	// DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived from the
+	// GPU's own memory so the two always sum to it.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	FBUsedPercent *int32 `json:"fbUsedPercent,omitempty"`
+
+	// grEngineActivePercent becomes the 0-1 ratio DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+	// Expressed as a percentage because a percentage is far easier to write and
+	// read in a manifest than a fraction.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	GREngineActivePercent *int32 `json:"grEngineActivePercent,omitempty"`
+
+	// tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	TensorActivePercent *int32 `json:"tensorActivePercent,omitempty"`
+
+	// powerWatts is reported as DCGM_FI_DEV_POWER_USAGE. Omitted entirely when
+	// unset rather than guessed.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	PowerWatts *int32 `json:"powerWatts,omitempty"`
+
+	// temperatureC is reported as DCGM_FI_DEV_GPU_TEMP. Omitted entirely when
+	// unset rather than guessed.
+	// +optional
+	TemperatureC *int32 `json:"temperatureC,omitempty"`
 }
 
 // OccupancyEntry declares how many GPUs are already busy on matching nodes.
