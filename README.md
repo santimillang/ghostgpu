@@ -77,6 +77,25 @@ By default this models **dynamic MIG**, as NVIDIA's DRA driver does: every profi
 
 The distinction matters for the legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy). Scalar resources cannot say "these two are the same silicon", so under dynamic MIG a node advertises alternatives whose *sum* no card could satisfy — each count is right, their total is not. **A declared partition makes that projection exact**, because the declared instances all coexist. The DRA path is faithful either way. See the fidelity contract in the design spec and [#28](https://github.com/santimillang/ghostgpu/issues/28).
 
+### Injecting hardware failures
+
+Hardware failure is the hardest thing to test for, because you cannot arrange it on demand — there is no way to ask a production GPU to fall off the bus so you can see whether your remediation drains the node. Declare it instead:
+
+```yaml
+spec:
+  faults:
+    - nodeSelector: {rack: a}
+      gpus: 1
+      effect: Evict        # the card is gone; the job must move
+      xid: 79              # reported on DCGM_FI_DEV_XID_ERRORS
+```
+
+`Evict` models device loss and uncorrectable ECC. The workload running on that GPU is **thrown off and its `ResourceClaim` released**, so it can be rescheduled onto healthy hardware — which is the behaviour a remediation or requeueing system under test actually needs to exercise. `Unschedulable` models a card that still runs but must take no new work, such as one with a row remap pending a reboot.
+
+The `xid` surfaces on `DCGM_FI_DEV_XID_ERRORS`, which is the signal most remediation watches, and rides along on the device taint so `kubectl get resourceslice` explains why a device is out of service without anyone scraping metrics.
+
+Faults and occupancy are independent declarations applied lowest-index-first, and a fault wins where they overlap — so "three busy, one faulted" means the failure happened to a GPU that was working. Repairing a fleet is just removing the entry, which makes a pending job schedulable again.
+
 ### Metrics
 
 The operator serves DCGM-shaped telemetry for the simulated fleet on port 9400 — dcgm-exporter's conventional port, so an existing scrape config or ServiceMonitor finds it unchanged:
@@ -171,8 +190,8 @@ ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotatio
 | MIG / partitionable devices | working, unreleased (v0.2) |
 | Pre-existing occupancy / fragmentation scenarios | working, unreleased |
 | DCGM-shaped Prometheus metrics with per-pod and per-MIG-instance attribution | working, unreleased (v0.3) |
-| Behavioral workload simulation (weight-download → warmup → training) | planned (v0.4) |
-| GPU fault injection (XID, ECC, thermal, device loss) | planned (v0.5) |
+| GPU fault injection (XID, device loss, drain-before-reboot) | working, unreleased |
+| Behavioral workload simulation (weight-download → warmup → training) | planned |
 
 ## Prior art
 

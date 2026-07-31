@@ -75,10 +75,10 @@ func MIGDeviceSliceName(poolName, nodeName string, shard int) string {
 // set declared in another, with a negative control, so a GPU's profiles may
 // straddle a shard boundary freely.
 //
-// busy is how many of the node's physical GPUs are declared occupied. Every
-// instance carved from those cards is tainted, not merely one: MIG instances
-// draw on a shared counter set, so leaving a single profile allocatable on an
-// "occupied" card would mean the card was never occupied at all.
+// state carries the node's declared occupancy and faults. Every instance carved
+// from an affected card inherits its taint, not merely one: MIG instances draw
+// on a shared counter set, so leaving a single profile allocatable on a card
+// that is busy — or broken — would mean it was never affected at all.
 //
 // The result is a pure function of its inputs, so a restarted operator
 // republishes identical slices rather than churning them.
@@ -87,7 +87,7 @@ func BuildMIGSlices(
 	model *v1alpha1.GPUModel,
 	table mig.Table,
 	nodeName string,
-	busy int32,
+	state NodeState,
 ) []*resourcev1.ResourceSlice {
 	gpus := pool.Spec.GPUsPerNode
 
@@ -129,8 +129,8 @@ func BuildMIGSlices(
 		devices := make([]resourcev1.Device, 0, last-first)
 		for _, instance := range instances[first:last] {
 			device := migDevice(pool, model, instance, nodeName)
-			if instance.GPUIndex < busy {
-				device.Taints = []resourcev1.DeviceTaint{OccupiedTaint()}
+			if taint := state.Taint(instance.GPUIndex); taint != nil {
+				device.Taints = []resourcev1.DeviceTaint{*taint}
 			}
 			devices = append(devices, device)
 		}

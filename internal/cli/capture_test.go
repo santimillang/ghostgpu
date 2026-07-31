@@ -629,11 +629,11 @@ func TestCaptureRoundTrip(t *testing.T) {
 
 			var published []resourcev1.ResourceSlice
 			if pool.Spec.MIGEnabled() {
-				for _, s := range gpu.BuildMIGSlices(pool, model, table, node.Name, 0) {
+				for _, s := range gpu.BuildMIGSlices(pool, model, table, node.Name, gpu.NodeState{}) {
 					published = append(published, *s)
 				}
 			} else {
-				published = append(published, *gpu.BuildResourceSlice(pool, model, node.Name, 0))
+				published = append(published, *gpu.BuildResourceSlice(pool, model, node.Name, gpu.NodeState{}))
 			}
 
 			got := mustCapture(t, []corev1.Node{node}, published, CaptureOptions{EmitNodes: true})

@@ -80,6 +80,63 @@ spec:
                       which GPU was assigned to which pod.
                     type: boolean
                 type: object
+              faults:
+                description: |-
+                  faults declares GPUs that have failed.
+
+                  Hardware failure is one of the hardest things to test for, because it
+                  cannot be arranged on demand: you cannot ask a production GPU to fall off
+                  the bus to see whether your remediation drains the node. Declaring it
+                  makes that scenario reproducible.
+
+                  Faults and occupancy are independent declarations, both applied
+                  lowest-index-first, and a fault wins where they overlap — so "three busy,
+                  one faulted" means the failure happened to a GPU that was working.
+                items:
+                  description: FaultEntry declares failed GPUs on matching nodes.
+                  properties:
+                    effect:
+                      default: Evict
+                      description: effect is what the failure does to work on the
+                        GPU.
+                      enum:
+                      - Evict
+                      - Unschedulable
+                      type: string
+                    gpus:
+                      description: |-
+                        gpus is how many of each matching node's physical GPUs have failed,
+                        counted from the lowest index so a scenario is reproducible.
+
+                        Under sharingMode "mig" this counts whole cards, as occupancy does:
+                        every instance carved from a failed GPU fails with it, because they are
+                        the same silicon.
+                      format: int32
+                      maximum: 128
+                      minimum: 0
+                      type: integer
+                    nodeSelector:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        nodeSelector chooses which of the pool's nodes this entry applies to.
+                        Empty matches every node in the pool.
+                      type: object
+                    xid:
+                      description: |-
+                        xid is the NVIDIA XID error code to report on DCGM_FI_DEV_XID_ERRORS for
+                        the failed GPUs, which is the signal most remediation tooling watches.
+                        79 is "GPU has fallen off the bus"; 48 is a double-bit ECC error.
+
+                        Zero reports no error, which models a GPU that has been taken out of
+                        service without the driver having logged anything.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                  required:
+                  - gpus
+                  type: object
+                type: array
               gpusPerNode:
                 description: |-
                   gpusPerNode is how many simulated GPUs each matching node receives.
@@ -420,6 +477,12 @@ spec:
                   matched nodes. Under sharingMode "none" that is one per simulated GPU;
                   under "mig" it is one per MIG instance, so it counts instances rather
                   than cards.
+                format: int32
+                type: integer
+              gpusFaulted:
+                description: |-
+                  gpusFaulted is how many physical GPUs across all matched nodes this pool
+                  has declared failed.
                 format: int32
                 type: integer
               gpusOccupied:

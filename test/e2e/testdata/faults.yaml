@@ -1,0 +1,57 @@
+# A healthy fleet. The suite injects the fault at runtime, because the whole
+# point is what happens to a job that was already running when the GPU died.
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: faults-h100
+spec:
+  vendor: nvidia
+  productName: NVIDIA-H100-80GB-HBM3
+  memory: 80Gi
+  computeCapability: "9.0"
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: faults-pool
+spec:
+  modelRef: faults-h100
+  nodeSelector:
+    type: faults
+  gpusPerNode: 2
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: ghostgpu-faults-e2e
+spec:
+  selectors:
+    - cel:
+        expression: device.driver == "gpu.ghostgpu.dev"
+---
+apiVersion: v1
+kind: Node
+metadata:
+  name: ghost-faults-0
+  annotations:
+    node.alpha.kubernetes.io/ttl: "0"
+    kwok.x-k8s.io/node: fake
+  labels:
+    kubernetes.io/arch: amd64
+    kubernetes.io/hostname: ghost-faults-0
+    kubernetes.io/os: linux
+    type: faults
+spec:
+  taints:
+    - effect: NoSchedule
+      key: kwok.x-k8s.io/node
+      value: fake
+status:
+  allocatable: {cpu: "96", memory: 1024Gi, pods: "110"}
+  capacity: {cpu: "96", memory: 1024Gi, pods: "110"}
+  nodeInfo:
+    architecture: amd64
+    containerRuntimeVersion: containerd://fake
+    kubeletVersion: fake
+    operatingSystem: linux
+  phase: Running

@@ -86,8 +86,11 @@ func NodeResources(pool *v1alpha1.GPUPool, table mig.Table) corev1.ResourceList 
 // Unlike the MIG projection, this is faithful rather than approximated: there
 // is nothing about "six of these eight GPUs are already busy" that a scalar
 // resource cannot say.
-func NodeAllocatable(pool *v1alpha1.GPUPool, table mig.Table, busy int32) corev1.ResourceList {
-	return nodeResourcesFor(pool, table, max(0, pool.Spec.GPUsPerNode-busy))
+// Faulted GPUs are subtracted alongside occupied ones: a failed card is not
+// available to the scheduler either, and advertising it would let a workload be
+// placed on hardware the simulation says is broken.
+func NodeAllocatable(pool *v1alpha1.GPUPool, table mig.Table, state NodeState) corev1.ResourceList {
+	return nodeResourcesFor(pool, table, max(0, pool.Spec.GPUsPerNode-state.Unavailable()))
 }
 
 func nodeResourcesFor(pool *v1alpha1.GPUPool, table mig.Table, gpusAvailable int32) corev1.ResourceList {

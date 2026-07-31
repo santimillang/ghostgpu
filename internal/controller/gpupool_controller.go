@@ -129,12 +129,17 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, r.Status().Update(ctx, &pool)
 	}
 
+	if err := gpu.ValidateFaults(&pool); err != nil {
+		setReady(&pool, metav1.ConditionFalse, "FaultsInvalid", err.Error())
+		return ctrl.Result{}, r.Status().Update(ctx, &pool)
+	}
+
 	var nodes corev1.NodeList
 	if err := r.List(ctx, &nodes, client.MatchingLabels(pool.Spec.NodeSelector)); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	var matched, devices, occupied int32
+	var matched, devices, occupied, faulted int32
 	live := make(map[string]struct{}, len(nodes.Items))
 
 	for i := range nodes.Items {
@@ -148,20 +153,21 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		matched++
 
-		// Occupancy is per node, because a fleet that is evenly full is not a
-		// fragmentation scenario.
-		busy := gpu.BusyGPUs(&pool, node)
-		occupied += busy
+		// Resolved per node, because a fleet that is evenly full or evenly
+		// broken is not an interesting scenario.
+		state := gpu.StateFor(&pool, node)
+		occupied += state.Busy
+		faulted += state.Faulted
 
 		if pool.Spec.Advertise.DRAEnabled() {
-			published, err := r.reconcileSlices(ctx, &pool, &model, table, node.Name, busy, live)
+			published, err := r.reconcileSlices(ctx, &pool, &model, table, node.Name, state, live)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
 			devices += published
 		}
 
-		if err := r.reconcileNode(ctx, &pool, &model, table, node, busy); err != nil {
+		if err := r.reconcileNode(ctx, &pool, &model, table, node, state); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -177,13 +183,15 @@ func (r *GPUPoolReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	pool.Status.NodesMatched = matched
 	pool.Status.DevicesPublished = devices
 	pool.Status.GPUsOccupied = occupied
+	pool.Status.GPUsFaulted = faulted
 	pool.Status.MIGProfilesPublished = int32(len(table.Profiles))
-	setReady(&pool, metav1.ConditionTrue, "Reconciled", summarize(&pool, devices, matched, occupied, table))
+	setReady(&pool, metav1.ConditionTrue, "Reconciled",
+		summarize(&pool, devices, matched, occupied, faulted, table))
 
 	return ctrl.Result{}, r.Status().Update(ctx, &pool)
 }
 
-func summarize(pool *ghostgpuv1alpha1.GPUPool, devices, matched, occupied int32, table mig.Table) string {
+func summarize(pool *ghostgpuv1alpha1.GPUPool, devices, matched, occupied, faulted int32, table mig.Table) string {
 	summary := fmt.Sprintf("simulated %d GPUs across %d nodes", devices, matched)
 	if pool.Spec.MIGEnabled() {
 		summary = fmt.Sprintf("simulated %d MIG instances across %d nodes (%d profiles per GPU)",
@@ -191,6 +199,9 @@ func summarize(pool *ghostgpuv1alpha1.GPUPool, devices, matched, occupied int32,
 	}
 	if occupied > 0 {
 		summary += fmt.Sprintf("; %d GPUs declared occupied", occupied)
+	}
+	if faulted > 0 {
+		summary += fmt.Sprintf("; %d GPUs declared faulted", faulted)
 	}
 	return summary
 }
@@ -206,11 +217,11 @@ func (r *GPUPoolReconciler) reconcileSlices(
 	model *ghostgpuv1alpha1.GPUModel,
 	table mig.Table,
 	nodeName string,
-	busy int32,
+	state gpu.NodeState,
 	live map[string]struct{},
 ) (int32, error) {
 	if !pool.Spec.MIGEnabled() {
-		if err := r.applySlice(ctx, pool, gpu.BuildResourceSlice(pool, model, nodeName, busy)); err != nil {
+		if err := r.applySlice(ctx, pool, gpu.BuildResourceSlice(pool, model, nodeName, state)); err != nil {
 			return 0, err
 		}
 		live[gpu.SliceName(pool.Name, nodeName)] = struct{}{}
@@ -218,7 +229,7 @@ func (r *GPUPoolReconciler) reconcileSlices(
 	}
 
 	var devices int32
-	for _, desired := range gpu.BuildMIGSlices(pool, model, table, nodeName, busy) {
+	for _, desired := range gpu.BuildMIGSlices(pool, model, table, nodeName, state) {
 		if err := r.applySlice(ctx, pool, desired); err != nil {
 			return 0, err
 		}
@@ -286,7 +297,7 @@ func (r *GPUPoolReconciler) reconcileNode(
 	model *ghostgpuv1alpha1.GPUModel,
 	table mig.Table,
 	node *corev1.Node,
-	busy int32,
+	state gpu.NodeState,
 ) error {
 	if pool.Spec.Advertise.ExtendedResourceEnabled() {
 		// Capacity is what the hardware has; allocatable is what is left for
@@ -294,7 +305,7 @@ func (r *GPUPoolReconciler) reconcileNode(
 		// apart is the honest encoding rather than a trick: it is exactly what
 		// the distinction means for cpu and memory under --system-reserved.
 		capacity := gpu.NodeResources(pool, table)
-		allocatable := gpu.NodeAllocatable(pool, table, busy)
+		allocatable := gpu.NodeAllocatable(pool, table, state)
 
 		if !resourcesMatch(node.Status.Capacity, capacity) ||
 			!resourcesMatch(node.Status.Allocatable, allocatable) {

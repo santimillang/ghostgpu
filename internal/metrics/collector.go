@@ -102,20 +102,30 @@ func CardsFrom(
 			// user asked for.
 			busy := held || occupied(device)
 
+			// A failed GPU reports its XID, which is what remediation watches,
+			// and reports no utilization: broken hardware is not doing work.
+			xid, faulted := faultedXID(device)
+			if faulted {
+				busy = false
+			}
+
+			reading := Resolve(pool.Spec.Utilization, busy)
+			reading.XID = xid
+
 			if profile := stringAttr(device, gpu.AttrMIGProfile); profile != "" {
 				card.Instances = append(card.Instances, Instance{
 					Profile:    profile,
 					InstanceID: intAttr(device, gpu.AttrMIGInstanceID),
 					MemoryMiB:  deviceMemoryMiB(device),
 					Holder:     holder,
-					Reading:    Resolve(pool.Spec.Utilization, busy),
+					Reading:    reading,
 				})
 				// The card's own reading is filled in below from its instances.
 				continue
 			}
 
 			card.Holder = holder
-			card.Reading = Resolve(pool.Spec.Utilization, busy)
+			card.Reading = reading
 		}
 	}
 
@@ -190,6 +200,31 @@ func occupied(device resourcev1.Device) bool {
 		}
 	}
 	return false
+}
+
+// faultedXID reads the failure ghostgpu declared for a device.
+//
+// The XID travels on the taint value as "xid-<n>", so the ResourceSlice alone
+// explains why a device is out of service. Reading it back from there rather
+// than from the pool spec means what is reported is what the scheduler is
+// acting on.
+func faultedXID(device resourcev1.Device) (int32, bool) {
+	for _, taint := range device.Taints {
+		if taint.Key != gpu.FaultedTaintKey {
+			continue
+		}
+		digits, ok := strings.CutPrefix(taint.Value, "xid-")
+		if !ok {
+			// A fault with no XID declared: out of service, driver silent.
+			return 0, true
+		}
+		xid, err := strconv.Atoi(digits)
+		if err != nil {
+			return 0, true
+		}
+		return int32(xid), true
+	}
+	return 0, false
 }
 
 func stringAttr(device resourcev1.Device, name resourcev1.QualifiedName) string {
