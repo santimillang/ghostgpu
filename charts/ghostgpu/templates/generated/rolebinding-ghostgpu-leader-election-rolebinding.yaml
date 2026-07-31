@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: ghostgpu
+  name: ghostgpu-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ghostgpu-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: ghostgpu-controller-manager
+  namespace: {{ .Release.Namespace }}
