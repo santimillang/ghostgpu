@@ -1,0 +1,50 @@
+# The chart is generated from config/helm, so a CRD or RBAC change that skips
+# the generator would ship a chart describing a different operator than
+# install.yaml does. This job is what makes "generated, not written" true.
+name: Chart
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+jobs:
+  chart:
+    permissions:
+      contents: read
+    name: chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Regenerate the chart
+        run: make helm
+
+      - name: Fail if the committed chart is stale
+        run: |
+          if ! git diff --exit-code -- charts/; then
+            echo "::error::charts/ is out of date. Run 'make helm' and commit the result."
+            exit 1
+          fi
+
+      - name: Lint the chart
+        run: |
+          make helm-tool
+          ./bin/helm lint charts/ghostgpu
+          ./bin/helm lint charts/ghostgpu -f charts/ghostgpu/values-example.yaml
+
+      - name: Build the installer for comparison
+        run: make build-installer IMG=ghcr.io/santimillang/ghostgpu:v0.0.0-dev
+
+      - name: Assert the chart and the installer agree
+        run: go test -tags=chart ./test/chart/ -v
