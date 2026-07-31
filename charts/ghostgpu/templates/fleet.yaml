@@ -1,0 +1,36 @@
+{{- /*
+Fleets declared in values are rendered verbatim. `spec` is passed through with
+toYaml and nothing here inspects it: the CRD's OpenAPI schema is the validator,
+and a values.schema.json describing the same fields would be a second copy of
+the API to keep in sync with the first.
+
+The cost is that a typo in spec is reported by the API server at install time
+rather than by Helm at render time. Accepted knowingly, in exchange for one
+schema instead of two.
+
+Both kinds are cluster-scoped, so nothing here templates a namespace.
+*/ -}}
+{{- range .Values.gpuModels }}
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUModel
+metadata:
+  name: {{ .name | required "each gpuModels entry needs a name" }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+{{ toYaml (.spec | required "each gpuModels entry needs a spec") | indent 2 }}
+{{- end }}
+{{- range .Values.gpuPools }}
+---
+apiVersion: ghostgpu.dev/v1alpha1
+kind: GPUPool
+metadata:
+  name: {{ .name | required "each gpuPools entry needs a name" }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+{{ toYaml (.spec | required "each gpuPools entry needs a spec") | indent 2 }}
+{{- end }}
