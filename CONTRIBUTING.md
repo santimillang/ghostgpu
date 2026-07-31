@@ -98,6 +98,27 @@ ghostgpu is only as valuable as its fidelity claims are honest. When you add a s
 
 Do not silently upgrade something from "approximated" to "faithful" in the docs without evidence.
 
+## Cutting a release
+
+1. Run the release workflow with `workflow_dispatch` and a throwaway version
+   (`v0.0.0-dryrun`). It builds everything and publishes nothing.
+2. Confirm the artifacts: `install.yaml`, five CLI archives, `checksums.txt`,
+   and a packaged chart.
+3. Move the `CHANGELOG.md` entries out of `Unreleased` under the new version.
+4. Tag and push: `git tag -s v0.1.0 && git push origin v0.1.0`.
+5. **Set the ghcr package visibility to public** for both
+   `ghostgpu` and `charts/ghostgpu`. Package visibility is independent of
+   repository visibility and both default to private, so an anonymous
+   `docker pull` or `helm pull` fails with a bare `denied` until this is done.
+   It is invisible from inside the repository and is the likeliest first-user
+   complaint.
+6. Verify as a stranger would: pull the image, install the chart, and download
+   and run the CLI, all from a machine with no clone of this repository.
+
+A published tag cannot be replaced. If a release is wrong, bump the patch
+version rather than moving the tag: the image tag is immutable, so a re-run
+would fail on push and leave the release half-made.
+
 ## Reporting bugs and requesting features
 
 Use the issue templates. For security vulnerabilities, **do not open a public issue** — see [SECURITY.md](SECURITY.md).
