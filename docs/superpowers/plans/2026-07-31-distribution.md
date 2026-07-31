@@ -16,7 +16,9 @@
 - **Conventional Commits, DCO sign-off (`git commit -s`)**, body explaining *why*, `Co-Authored-By` trailer.
 - **TDD:** write the failing test, confirm red, minimal implementation, confirm green.
 - **Fix lint properly, never suppress it.** The repo runs a custom golangci-lint build (`.custom-gcl.yml`).
-- **Go is not on the default WSL login PATH.** Use the `~/gg.sh` wrapper to run `go` and `make`.
+- **`go`, `make`, and `helm` are on the WSL login PATH** (`go1.26.5`, `helm v3.19.0` at `~/go/bin/helm`). The old `~/gg.sh` wrapper no longer exists — do not use it. Run commands as `wsl.exe -e bash -lc '<cmd>'`.
+- **Shell quoting through `wsl.exe -e bash -lc '...'` truncates heredocs at the first apostrophe.** Write files with the file tool at `\\wsl.localhost\Ubuntu\home\santi\repos\ghostgpu\...`, and pass commit messages via `git commit -s -F <file>`, never inline.
+- **Capturing a script's live output through `wsl.exe` interleaves stdout and stderr out of order.** Redirect to a file inside WSL and read it back, or a passing control will look like a failure.
 - **`make build-cli` does not rebuild `bin/manager`,** and `go build ./...` writes nothing to `bin/`. A stale operator binary has cost a debugging cycle before.
 - **`make test-e2e` leaves `config/manager/kustomization.yaml` modified** (`kustomize edit set image`). Discard it before committing.
 - **`make test-e2e` only tears the cluster down on success.** Anything created with a bare `kubectl create` poisons every later run.
@@ -743,14 +745,12 @@ HELM ?= $(LOCALBIN)/helm
 Next to the other tool versions:
 
 ```make
-# Pin to the newest Helm 3 release. Resolve it with:
-#   curl -s https://api.github.com/repos/helm/helm/releases/latest | grep tag_name
-# and record the exact tag here, because a floating version makes chart
-# generation non-reproducible between a developer's machine and CI.
+# Pinned: a floating version makes chart generation non-reproducible between
+# a developer's machine and CI. v3.19.0 is what the CRD-ordering spike used.
 HELM_VERSION ?= v3.19.0
 ```
 
-Set `HELM_VERSION` to whatever that command returns at implementation time; `v3.19.0` is a starting point, not a verified value.
+`v3.19.0` is verified — Task 1's spike installed and ran it via `go install helm.sh/helm/v3/cmd/helm@v3.19.0`, which lands the binary in `$(go env GOPATH)/bin`. Use that same version.
 
 Next to the other tool install rules:
 
