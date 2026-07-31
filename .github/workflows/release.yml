@@ -171,6 +171,7 @@ jobs:
           name: release-artifacts
           path: |
             dist/install.yaml
+            dist/ghostgpu-*.tgz
             dist/*.tar.gz
             dist/*.zip
             dist/checksums.txt
