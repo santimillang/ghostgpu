@@ -3,6 +3,12 @@ IMG ?= controller:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
+# Injected into the CLI so a locally built binary still reports where it came
+# from. A release overrides these through GoReleaser's defaults.
+CLI_VERSION ?= dev
+CLI_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+CLI_DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -124,7 +130,7 @@ cleanup-test-e2e: ## Tear down the kwok cluster used for e2e tests
 
 .PHONY: build-cli
 build-cli: manifests generate fmt vet ## Build the ghostgpu CLI.
-	go build -o bin/ghostgpu ./cmd/ghostgpu
+	go build -ldflags "-X main.version=$(CLI_VERSION) -X main.commit=$(CLI_COMMIT) -X main.date=$(CLI_DATE)" -o bin/ghostgpu ./cmd/ghostgpu
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
