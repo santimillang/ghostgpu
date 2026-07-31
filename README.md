@@ -18,7 +18,7 @@ ghostgpu builds on [kwok](https://kwok.sigs.k8s.io/) and publishes Dynamic Resou
 
 ## Why
 
-Testing GPU scheduling logic normally requires GPUs — expensive to idle, slow to provision, and impractical in CI. ghostgpu lets you run the real thing (Kueue, Volcano, KEDA, your own operator) against simulated fleets on a laptop.
+Testing GPU scheduling logic normally requires GPUs — expensive to idle, slow to provision, and impractical in CI. ghostgpu lets you run the real thing (Kueue, Volcano, KEDA, your own operator) against simulated fleets on a laptop — including [a copy of the fleet you actually run](#reproducing-a-real-cluster), read out of your own cluster.
 
 Already verified against a real `kube-scheduler`: pods are placed against simulated GPU capacity and correctly refused once that capacity is exhausted — including MIG-style partitioning, where overlapping profiles on the same physical GPU are mutually exclusive.
 
@@ -76,6 +76,21 @@ By default this models **dynamic MIG**, as NVIDIA's DRA driver does: every profi
 ```
 
 The distinction matters for the legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy). Scalar resources cannot say "these two are the same silicon", so under dynamic MIG a node advertises alternatives whose *sum* no card could satisfy — each count is right, their total is not. **A declared partition makes that projection exact**, because the declared instances all coexist. The DRA path is faithful either way. See the fidelity contract in the design spec and [#28](https://github.com/santimillang/ghostgpu/issues/28).
+
+### Reproducing a real cluster
+
+Describing your fleet by hand is guesswork about exactly the details that matter — the ones that differ from the defaults are usually the ones causing the bug you are chasing. `ghostgpu capture` reads a cluster that already has GPUs and prints the manifests that reproduce it:
+
+```sh
+ghostgpu capture --context prod-us-east > fleet.yaml
+ghostgpu capture --context prod-us-east | kubectl apply -f -
+```
+
+Everything comes from what such a cluster already publishes: GFD labels give the product, memory, and compute capability; `nvidia.com/mig-*` capacity gives the per-GPU MIG layout; `ResourceSlice` attributes give NVLink domains and NUMA locality. Distinct node shapes become distinct pools, and the kwok `Node` manifests come with them, so applying the output is enough to have the fleet — `--nodes=false` prints only the pools.
+
+**It only ever reads.** The client is narrowed to a read-only type before the command is handed one, so there is no create, update, or delete for it to call; pointing a simulator at production has to be provably harmless, not merely intended to be. The manifests go to stdout, so applying them stays your own explicit act, and node names are synthesised rather than copied so captured output is safe to paste into an issue.
+
+Capture is lossy by design: it reproduces *shape*, not workloads. Anything it cannot reproduce faithfully — a non-uniform MIG layout, a node whose GFD labels are incomplete, the `single` MIG strategy — is reported on stderr, so `> fleet.yaml` still yields a clean file.
 
 ### Seeing what happened
 
