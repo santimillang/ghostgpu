@@ -31,3 +31,4 @@ go.work
 
 # Installer built by make build-installer and published on releases.
 dist/
+.superpowers/
