@@ -103,11 +103,13 @@ image:
   tag: ""                 # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
-# Rendered verbatim into GPUModel/GPUPool objects.
+# Rendered verbatim into GPUModel/GPUPool objects. productName becomes a
+# Kubernetes node label value (internal/gpu/nodelabels.go), so it must be a
+# valid label value: no spaces.
 gpuModels: []
 # - name: h100
 #   spec:
-#     productName: NVIDIA H100 80GB HBM3
+#     productName: NVIDIA-H100-80GB-HBM3
 #     memory: 80Gi
 #     computeCapability: "9.0"
 

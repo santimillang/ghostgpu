@@ -9,10 +9,14 @@ image:
 # `spec` is passed through untouched: the CRD's OpenAPI schema is the validator,
 # and a copy of it here would be a second API to keep in sync with the first.
 #
+# productName becomes the value of a Kubernetes node label (nvidia.com/gpu.product,
+# set by internal/gpu/nodelabels.go), not just descriptive text, so it must be a
+# valid label value: no spaces, only alphanumerics/-/_/. .
+#
 # gpuModels:
 #   - name: h100
 #     spec:
-#       productName: NVIDIA H100 80GB HBM3
+#       productName: NVIDIA-H100-80GB-HBM3
 #       memory: 80Gi
 #       computeCapability: "9.0"
 #
