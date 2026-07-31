@@ -1,0 +1,27 @@
+# Scrape target for the simulated fleet's DCGM-shaped metrics.
+#
+# Deliberately separate from the controller-manager's own metrics service.
+# Those describe ghostgpu; these describe the GPUs it simulates, and anything
+# scraping GPU utilization wants the second without the first.
+#
+# Named and labelled after dcgm-exporter so that a ServiceMonitor or scrape
+# config written for the real thing selects this without being rewritten —
+# which is the whole point of matching its metric names in the first place.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gpu-metrics
+  namespace: system
+  labels:
+    app.kubernetes.io/name: ghostgpu
+    app.kubernetes.io/component: gpu-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ghostgpu
+    control-plane: controller-manager
+  ports:
+    - name: gpu-metrics
+      port: 9400
+      targetPort: gpu-metrics
+      protocol: TCP

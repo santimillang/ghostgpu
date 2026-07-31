@@ -69,6 +69,11 @@ spec:
         - containerPort: 8081
           name: health
           protocol: TCP
+        # DCGM-shaped metrics for the simulated fleet, on dcgm-exporter's
+        # conventional port so an existing scrape config finds them unchanged.
+        - containerPort: 9400
+          name: gpu-metrics
+          protocol: TCP
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false

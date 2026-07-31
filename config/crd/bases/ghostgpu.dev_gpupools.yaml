@@ -217,6 +217,127 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              utilization:
+                description: |-
+                  utilization declares what a simulated GPU reports through the
+                  DCGM-shaped metrics endpoint.
+
+                  Declared rather than randomised on purpose. A metric that jitters cannot
+                  be asserted against, and the point of these numbers is to drive a rule
+                  under test — "scale down when utilization stays below 20% for ten
+                  minutes" is only testable if the fleet reliably does that.
+                properties:
+                  whenAllocated:
+                    description: |-
+                      whenAllocated is reported by a GPU the scheduler has given to a pod, and
+                      by one declared occupied. Defaults to fully busy.
+                    properties:
+                      fbUsedPercent:
+                        description: |-
+                          fbUsedPercent is how much of the framebuffer is in use. Reported as
+                          DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived from the
+                          GPU's own memory so the two always sum to it.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      gpuUtil:
+                        description: gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      grEngineActivePercent:
+                        description: |-
+                          grEngineActivePercent becomes the 0-1 ratio DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+                          Expressed as a percentage because a percentage is far easier to write and
+                          read in a manifest than a fraction.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      memCopyUtil:
+                        description: memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      powerWatts:
+                        description: |-
+                          powerWatts is reported as DCGM_FI_DEV_POWER_USAGE. Omitted entirely when
+                          unset rather than guessed.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      temperatureC:
+                        description: |-
+                          temperatureC is reported as DCGM_FI_DEV_GPU_TEMP. Omitted entirely when
+                          unset rather than guessed.
+                        format: int32
+                        type: integer
+                      tensorActivePercent:
+                        description: tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                    type: object
+                  whenIdle:
+                    description: |-
+                      whenIdle is reported by a GPU nothing holds. Defaults to zero, which is
+                      what an idle GPU genuinely draws in every field ghostgpu models.
+                    properties:
+                      fbUsedPercent:
+                        description: |-
+                          fbUsedPercent is how much of the framebuffer is in use. Reported as
+                          DCGM_FI_DEV_FB_USED and DCGM_FI_DEV_FB_FREE in MiB, derived from the
+                          GPU's own memory so the two always sum to it.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      gpuUtil:
+                        description: gpuUtil is the percentage reported as DCGM_FI_DEV_GPU_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      grEngineActivePercent:
+                        description: |-
+                          grEngineActivePercent becomes the 0-1 ratio DCGM_FI_PROF_GR_ENGINE_ACTIVE.
+                          Expressed as a percentage because a percentage is far easier to write and
+                          read in a manifest than a fraction.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      memCopyUtil:
+                        description: memCopyUtil is the percentage reported as DCGM_FI_DEV_MEM_COPY_UTIL.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      powerWatts:
+                        description: |-
+                          powerWatts is reported as DCGM_FI_DEV_POWER_USAGE. Omitted entirely when
+                          unset rather than guessed.
+                        format: int32
+                        minimum: 0
+                        type: integer
+                      temperatureC:
+                        description: |-
+                          temperatureC is reported as DCGM_FI_DEV_GPU_TEMP. Omitted entirely when
+                          unset rather than guessed.
+                        format: int32
+                        type: integer
+                      tensorActivePercent:
+                        description: tensorActivePercent becomes the 0-1 ratio DCGM_FI_PROF_PIPE_TENSOR_ACTIVE.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                    type: object
+                type: object
             required:
             - gpusPerNode
             - modelRef

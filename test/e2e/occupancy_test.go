@@ -40,7 +40,7 @@ const (
 // gpuClaim renders a ResourceClaim for count whole GPUs, plus the pod holding
 // it. No device selector: the point is whether the cluster has room anywhere,
 // not whether a particular card can be picked.
-func gpuClaim(name string, count int) string {
+func gpuClaim(name string, count int, deviceClass string) string {
 	return fmt.Sprintf(`
 apiVersion: resource.k8s.io/v1
 kind: ResourceClaim
@@ -51,7 +51,7 @@ spec:
     requests:
       - name: gpu
         exactly:
-          deviceClassName: ghostgpu-occupancy-e2e
+          deviceClassName: %[3]s
           count: %[2]d
           allocationMode: ExactCount
 ---
@@ -74,8 +74,11 @@ spec:
   resourceClaims:
     - name: gpu
       resourceClaimName: %[1]s-claim
-`, name, count)
+`, name, count, deviceClass)
 }
+
+// occupancyClass is the DeviceClass the fragmentation fixtures publish.
+const occupancyClass = "ghostgpu-occupancy-e2e"
 
 // Fragmentation is the scenario ghostgpu could not express until now: every
 // simulated GPU started free, so the only bugs testable were about capacity.
@@ -165,13 +168,13 @@ var _ = Describe("occupancy", Ordered, func() {
 	// The assertion the whole feature exists for.
 	It("refuses a job that fits the cluster but no single node", func() {
 		By("placing a 2-GPU job, which any node still has room for")
-		Expect(applyYAML(gpuClaim("frag-small", 2))).To(Succeed())
+		Expect(applyYAML(gpuClaim("frag-small", 2, occupancyClass))).To(Succeed())
 		Eventually(func(g Gomega) {
 			g.Expect(podPhase(g, "frag-small")).To(Equal("Running"))
 		}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
 		By("submitting a 4-GPU job while 7 GPUs are free but fragmented")
-		Expect(applyYAML(gpuClaim("frag-large", 4))).To(Succeed())
+		Expect(applyYAML(gpuClaim("frag-large", 4, occupancyClass))).To(Succeed())
 		Consistently(func(g Gomega) {
 			g.Expect(podPhase(g, "frag-large")).To(Equal("Pending"))
 		}, 30*time.Second, 5*time.Second).Should(Succeed(),

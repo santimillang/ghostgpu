@@ -77,6 +77,31 @@ By default this models **dynamic MIG**, as NVIDIA's DRA driver does: every profi
 
 The distinction matters for the legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy). Scalar resources cannot say "these two are the same silicon", so under dynamic MIG a node advertises alternatives whose *sum* no card could satisfy — each count is right, their total is not. **A declared partition makes that projection exact**, because the declared instances all coexist. The DRA path is faithful either way. See the fidelity contract in the design spec and [#28](https://github.com/santimillang/ghostgpu/issues/28).
 
+### Metrics
+
+The operator serves DCGM-shaped telemetry for the simulated fleet on port 9400 — dcgm-exporter's conventional port, so an existing scrape config or ServiceMonitor finds it unchanged:
+
+```
+DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-8f3a…",modelName="NVIDIA H100 80GB HBM3",Hostname="ghost-0",namespace="team-a",pod="trainer",container="train"} 85
+DCGM_FI_DEV_FB_USED{gpu="0",…,pod="trainer"} 57344
+DCGM_FI_DEV_GPU_UTIL{gpu="1",…} 0
+```
+
+**The numbers are attributed.** `namespace`, `pod`, `container` — and under MIG `GPU_I_ID` and `GPU_I_PROFILE` — come straight from `ResourceClaim.status`, which the scheduler wrote. That is the payoff of the DRA-first design: there is nothing to re-derive from a container runtime, which is where real exporters accumulate bugs. An idle GPU carries no workload labels at all rather than empty ones, because an empty `pod` label is a distinct series that `sum by (pod)` will happily group on.
+
+**The numbers are declared, not randomised**, because a metric that jitters cannot be asserted against:
+
+```yaml
+spec:
+  utilization:
+    whenAllocated:
+      gpuUtil: 85
+      fbUsedPercent: 70
+      powerWatts: 550
+```
+
+Unset fields default to fully busy when allocated and zero when idle. Power and temperature have no default and are simply absent until declared — ghostgpu has no thermal or power model, and a plausible-looking wattage would be fabrication rather than simulation.
+
 ### Starting from a full cluster
 
 Most interesting GPU scheduling bugs are about fragmentation rather than capacity: *seven GPUs are free, but spread 2/2/2/1 across four nodes — does my four-GPU job schedule? Should it? Does my autoscaler add a node, and is that the right call?*
@@ -144,7 +169,8 @@ ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotatio
 |---|---|
 | DRA `ResourceSlice` publication + legacy `nvidia.com/gpu` capacity + GFD labels | working, unreleased (v0.1) |
 | MIG / partitionable devices | working, unreleased (v0.2) |
-| DCGM-shaped Prometheus metrics | planned (v0.3) |
+| Pre-existing occupancy / fragmentation scenarios | working, unreleased |
+| DCGM-shaped Prometheus metrics with per-pod and per-MIG-instance attribution | working, unreleased (v0.3) |
 | Behavioral workload simulation (weight-download → warmup → training) | planned (v0.4) |
 | GPU fault injection (XID, ECC, thermal, device loss) | planned (v0.5) |
 
