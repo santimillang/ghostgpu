@@ -66,8 +66,22 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
+      # Ordered before the release publish step so a GoReleaser failure aborts
+      # while nothing user-visible has been created. mode: append means it adds
+      # assets to the release the publish step creates rather than owning it.
+      - name: Build the CLI archives
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean ${{ github.event_name == 'workflow_dispatch' && '--snapshot' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Pinned to the immutable tag rather than :latest, so an installer
       # downloaded today keeps deploying the version it was built against.
+      #
+      # Runs after GoReleaser: GoReleaser's --clean empties dist/, so
+      # generating the installer first would have it deleted before publish.
       - name: Generate the installer
         run: |
           make build-installer \
@@ -117,5 +131,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: install.yaml
-          path: dist/install.yaml
+          name: release-artifacts
+          path: |
+            dist/install.yaml
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
