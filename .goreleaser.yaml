@@ -1,0 +1,47 @@
+# The CLI is half the quickstart: `ghostgpu up` is how a fleet gets declared, so
+# shipping only the operator image left the tutorial requiring a clone.
+version: 2
+
+project_name: ghostgpu
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ghostgpu
+    main: ./cmd/ghostgpu
+    binary: ghostgpu
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      # No Windows on ARM: nobody is running a Kubernetes test harness there,
+      # and an untested binary is worse than an absent one.
+      - goos: windows
+        goarch: arm64
+    # ldflags are GoReleaser's defaults, which write main.version, main.commit
+    # and main.date. Task 2 named those symbols to match.
+
+archives:
+  - id: ghostgpu
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+# The GitHub Release is created by the workflow's existing publish step, which
+# also attaches install.yaml. GoReleaser must not create or replace it.
+release:
+  disable: false
+  mode: append
+
+changelog:
+  disable: true
