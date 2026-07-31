@@ -59,6 +59,8 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: %[1]s
+  labels:
+    ghostgpu.dev/e2e-workload: %[1]s
 spec:
   tolerations:
     - key: kwok.x-k8s.io/node

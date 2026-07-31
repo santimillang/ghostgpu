@@ -252,6 +252,32 @@ type UtilizationSpec struct {
 	// what an idle GPU genuinely draws in every field ghostgpu models.
 	// +optional
 	WhenIdle *UtilizationSample `json:"whenIdle,omitempty"`
+
+	// workloads override whenAllocated for GPUs held by matching pods.
+	//
+	// This is what makes a fleet heterogeneous, and heterogeneity is the whole
+	// fixture that idle-GPU reclamation and utilization-based preemption need:
+	// the question those tools answer is which of several jobs is wasting its
+	// GPU, and a fleet where every allocated card reports the same number
+	// cannot ask it.
+	//
+	// Entries are first-match-wins, so ordering is meaningful and an entry with
+	// an empty selector reads as a default when placed last.
+	// +optional
+	Workloads []WorkloadUtilization `json:"workloads,omitempty"`
+}
+
+// WorkloadUtilization is what GPUs held by matching pods report.
+type WorkloadUtilization struct {
+	// podSelector chooses the pods this entry applies to. An empty selector
+	// matches every pod.
+	// +optional
+	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
+
+	// UtilizationSample is the reading those pods' GPUs report. Fields left
+	// unset fall back to whenAllocated, and then to the busy defaults, so an
+	// entry only has to state what makes this workload different.
+	UtilizationSample `json:",inline"`
 }
 
 // UtilizationSample is one set of readings.

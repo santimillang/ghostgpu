@@ -71,10 +71,13 @@ var _ = Describe("metrics", Ordered, func() {
 			g.Expect(jsonPath(g, "gpupool", metricsPool, "{.status.devicesPublished}")).To(Equal("4"))
 		}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
-		By("placing a workload on one of them")
-		Expect(applyYAML(gpuClaim("metrics-trainer", 1, "ghostgpu-metrics-e2e"))).To(Succeed())
+		By("placing two workloads on it: one well-behaved, one wasteful")
+		for _, name := range []string{"metrics-trainer", "wasteful"} {
+			Expect(applyYAML(gpuClaim(name, 1, "ghostgpu-metrics-e2e"))).To(Succeed())
+		}
 		Eventually(func(g Gomega) {
 			g.Expect(podPhase(g, "metrics-trainer")).To(Equal("Running"))
+			g.Expect(podPhase(g, "wasteful")).To(Equal("Running"))
 		}, 2*time.Minute, 2*time.Second).Should(Succeed())
 
 		Eventually(func(g Gomega) {
@@ -84,9 +87,11 @@ var _ = Describe("metrics", Ordered, func() {
 	})
 
 	AfterAll(func() {
-		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", "metrics-trainer", "--ignore-not-found"))
-		_, _ = utils.Run(exec.Command("kubectl", "delete", "resourceclaim",
-			"metrics-trainer-claim", "--ignore-not-found"))
+		for _, pod := range []string{"metrics-trainer", "wasteful"} {
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", pod, "--ignore-not-found"))
+			_, _ = utils.Run(exec.Command("kubectl", "delete", "resourceclaim",
+				pod+"-claim", "--ignore-not-found"))
+		}
 		_, _ = utils.Run(exec.Command("kubectl", "delete", "-f",
 			testdata("metrics.yaml"), "--ignore-not-found"))
 	})
@@ -139,7 +144,37 @@ var _ = Describe("metrics", Ordered, func() {
 			Expect(line).NotTo(ContainSubstring("namespace="))
 			Expect(line).To(HaveSuffix(" 0"), "an unheld GPU is not idle: "+line)
 		}
-		Expect(idle).To(Equal(3), "expected the other three GPUs to be idle and unlabelled")
+		Expect(idle).To(Equal(2), "expected the other two GPUs to be idle and unlabelled")
+	})
+
+	// The fixture idle-GPU reclamation needs, and the reason per-workload
+	// profiles exist: two jobs on one fleet, one using its GPU properly and one
+	// wasting it. A fleet where every allocated card reports the same number
+	// cannot ask the question those tools answer.
+	It("reports different utilization for different workloads", func() {
+		utilFor := func(pod string) string {
+			for _, line := range strings.Split(exposition, "\n") {
+				if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") &&
+					strings.Contains(line, `pod="`+pod+`"`) {
+					fields := strings.Fields(line)
+					return fields[len(fields)-1]
+				}
+			}
+			return ""
+		}
+
+		Expect(utilFor("metrics-trainer")).To(Equal("85"), "the pool default should apply")
+		Expect(utilFor("wasteful")).To(Equal("4"), "the matching workload profile should override it")
+
+		// The wasteful job is holding most of the framebuffer while doing
+		// nothing, which combined with low utilization is the signal real idle
+		// detection keys on.
+		for _, line := range strings.Split(exposition, "\n") {
+			if strings.HasPrefix(line, "DCGM_FI_DEV_FB_USED") && strings.Contains(line, `pod="wasteful"`) {
+				fields := strings.Fields(line)
+				Expect(fields[len(fields)-1]).To(Equal("77824"), "95% of 80Gi in MiB")
+			}
+		}
 	})
 
 	// ghostgpu has no thermal model, so a wattage nobody declared would be
