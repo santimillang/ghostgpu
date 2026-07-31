@@ -77,6 +77,27 @@ By default this models **dynamic MIG**, as NVIDIA's DRA driver does: every profi
 
 The distinction matters for the legacy extended-resource projection (`nvidia.com/mig-1g.10gb` and friends, NVIDIA's `mixed` strategy). Scalar resources cannot say "these two are the same silicon", so under dynamic MIG a node advertises alternatives whose *sum* no card could satisfy — each count is right, their total is not. **A declared partition makes that projection exact**, because the declared instances all coexist. The DRA path is faithful either way. See the fidelity contract in the design spec and [#28](https://github.com/santimillang/ghostgpu/issues/28).
 
+### Starting from a full cluster
+
+Most interesting GPU scheduling bugs are about fragmentation rather than capacity: *seven GPUs are free, but spread 2/2/2/1 across four nodes — does my four-GPU job schedule? Should it? Does my autoscaler add a node, and is that the right call?*
+
+Declare how full the fleet starts and that scenario exists before any workload is submitted:
+
+```yaml
+spec:
+  gpusPerNode: 4
+  occupancy:
+    - nodeSelector: {rack: c}
+      busyPerNode: 3
+    - busyPerNode: 2      # no selector: the default for everything else
+```
+
+Entries are first-match-wins, so ordering is meaningful and a selector-less entry reads as a default. `ghostgpu up --busy-per-node 2` covers the even case from one flag.
+
+Occupied GPUs are still published — a busy fleet has the same hardware as an idle one — but they carry a DRA device taint, so the upstream scheduler will not allocate them, and the legacy path advertises `allocatable` below `capacity`. ghostgpu never writes `ResourceClaim.status`: allocation is state the scheduler owns, and forging it would make the simulation lie to the very component under test. Lifting the occupancy releases the devices, so a pending job can be made schedulable mid-test.
+
+Under `sharingMode: mig`, `busyPerNode` still counts whole cards and every instance carved from an occupied one becomes unavailable. That is the only correct reading: MIG instances draw on shared counters, so leaving one profile allocatable would mean the card was never occupied.
+
 ### Reproducing a real cluster
 
 Describing your fleet by hand is guesswork about exactly the details that matter — the ones that differ from the defaults are usually the ones causing the bug you are chasing. `ghostgpu capture` reads a cluster that already has GPUs and prints the manifests that reproduce it:
@@ -98,13 +119,14 @@ Scheduling is the point, so ghostgpu can tell you what the scheduler did without
 
 ```sh
 $ ghostgpu status
-POOL       MODE  NODES  DEVICES  ALLOCATED  FREE
-h100-pool  mig   2      40       1          39
+POOL       MODE  NODES  DEVICES  OCCUPIED  ALLOCATED  FREE
+h100-pool  mig   2      40       10        1          29
 
 $ ghostgpu status --node ghost-mig-0
 NODE         DEVICE           PROFILE  STATUS     POD
 ghost-mig-0  gpu-0-1g-10gb-0  1g.10gb  free       -
 ghost-mig-0  gpu-0-3g-40gb-0  3g.40gb  allocated  default/trainer
+ghost-mig-0  gpu-1-1g-10gb-0  1g.10gb  occupied   (declared)
 
 $ ghostgpu status --budgets --node ghost-mig-0
 NODE         GPU    SLICES  MEMORY

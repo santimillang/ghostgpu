@@ -138,6 +138,49 @@ spec:
                   nodeSelector chooses which nodes receive simulated GPUs. Only
                   kwok-managed nodes are ever modified, regardless of what this matches.
                 type: object
+              occupancy:
+                description: |-
+                  occupancy declares how much of the fleet is already busy before any
+                  workload is submitted.
+
+                  Most interesting GPU scheduling bugs are about fragmentation rather than
+                  capacity — "seven GPUs are free but spread 2/2/2/1 across four nodes;
+                  does my four-GPU job schedule?" — and that situation cannot be built by
+                  submitting filler pods, because where the filler lands is the scheduler's
+                  choice and so the scenario under test is not reproducible.
+
+                  Entries are matched first-match-wins, so a list expresses a fleet that is
+                  unevenly full. An entry with no selector matches every node, which makes
+                  it a default when placed last.
+                items:
+                  description: OccupancyEntry declares how many GPUs are already busy
+                    on matching nodes.
+                  properties:
+                    busyPerNode:
+                      description: |-
+                        busyPerNode is how many of each matching node's physical GPUs are
+                        already occupied. It must not exceed gpusPerNode.
+
+                        Under sharingMode "mig" this still counts whole cards: every instance
+                        carved from an occupied GPU becomes unavailable. Anything else would be
+                        wrong rather than merely simpler, because MIG instances draw on shared
+                        counters — leaving one profile allocatable on an "occupied" card would
+                        mean the card was not occupied at all.
+                      format: int32
+                      maximum: 128
+                      minimum: 0
+                      type: integer
+                    nodeSelector:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        nodeSelector chooses which of the pool's nodes this entry applies to.
+                        Empty matches every node in the pool.
+                      type: object
+                  required:
+                  - busyPerNode
+                  type: object
+                type: array
               sharingMode:
                 default: none
                 description: |-
@@ -256,6 +299,17 @@ spec:
                   matched nodes. Under sharingMode "none" that is one per simulated GPU;
                   under "mig" it is one per MIG instance, so it counts instances rather
                   than cards.
+                format: int32
+                type: integer
+              gpusOccupied:
+                description: |-
+                  gpusOccupied is how many physical GPUs across all matched nodes this
+                  pool has declared busy, and so how much of the fleet was never available
+                  in the first place.
+
+                  Reported separately from devicesPublished because the two answer
+                  different questions: how much hardware exists, and how much of it a
+                  workload could actually have.
                 format: int32
                 type: integer
               migProfilesPublished:

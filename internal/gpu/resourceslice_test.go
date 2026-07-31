@@ -65,7 +65,7 @@ func TestSliceName(t *testing.T) {
 }
 
 func TestBuildResourceSliceTopLevelShape(t *testing.T) {
-	slice := BuildResourceSlice(testPool(8, 4, false), testModel(), nodeA)
+	slice := BuildResourceSlice(testPool(8, 4, false), testModel(), nodeA, 0)
 
 	if slice.Name != "h100-pool-node-a" {
 		t.Errorf("Name = %q, want h100-pool-node-a", slice.Name)
@@ -91,7 +91,7 @@ func TestBuildResourceSliceTopLevelShape(t *testing.T) {
 }
 
 func TestBuildResourceSliceDeviceNamesAreSequential(t *testing.T) {
-	slice := BuildResourceSlice(testPool(4, 0, false), testModel(), nodeA)
+	slice := BuildResourceSlice(testPool(4, 0, false), testModel(), nodeA, 0)
 	want := []string{"gpu-0", "gpu-1", "gpu-2", "gpu-3"}
 	for i, w := range want {
 		if got := slice.Spec.Devices[i].Name; got != w {
@@ -101,7 +101,7 @@ func TestBuildResourceSliceDeviceNamesAreSequential(t *testing.T) {
 }
 
 func TestBuildResourceSliceDeviceAttributes(t *testing.T) {
-	slice := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA)
+	slice := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA, 0)
 	d := slice.Spec.Devices[5]
 
 	cases := map[resourcev1.QualifiedName]string{
@@ -127,7 +127,7 @@ func TestBuildResourceSliceDeviceAttributes(t *testing.T) {
 }
 
 func TestBuildResourceSliceMemoryCapacity(t *testing.T) {
-	slice := BuildResourceSlice(testPool(2, 0, false), testModel(), nodeA)
+	slice := BuildResourceSlice(testPool(2, 0, false), testModel(), nodeA, 0)
 	mem, ok := slice.Spec.Devices[0].Capacity["memory"]
 	if !ok {
 		t.Fatal("memory capacity missing")
@@ -138,7 +138,7 @@ func TestBuildResourceSliceMemoryCapacity(t *testing.T) {
 }
 
 func TestBuildResourceSliceOmitsNVLinkDomainWhenDisabled(t *testing.T) {
-	slice := BuildResourceSlice(testPool(4, 0, false), testModel(), nodeA)
+	slice := BuildResourceSlice(testPool(4, 0, false), testModel(), nodeA, 0)
 	if _, ok := slice.Spec.Devices[0].Attributes[AttrNVLinkDomain]; ok {
 		t.Error("nvlinkDomain present, want omitted when nvlinkDomainSize is 0")
 	}
@@ -146,7 +146,7 @@ func TestBuildResourceSliceOmitsNVLinkDomainWhenDisabled(t *testing.T) {
 
 func TestBuildResourceSliceNUMAAttribute(t *testing.T) {
 	t.Run("emitted when numaAware", func(t *testing.T) {
-		slice := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA)
+		slice := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA, 0)
 		attr, ok := slice.Spec.Devices[4].Attributes[AttrNUMANode]
 		if !ok {
 			t.Fatal("numaNode attribute missing")
@@ -160,7 +160,7 @@ func TestBuildResourceSliceNUMAAttribute(t *testing.T) {
 	})
 
 	t.Run("omitted when not numaAware", func(t *testing.T) {
-		slice := BuildResourceSlice(testPool(8, 4, false), testModel(), nodeA)
+		slice := BuildResourceSlice(testPool(8, 4, false), testModel(), nodeA, 0)
 		if _, ok := slice.Spec.Devices[0].Attributes[AttrNUMANode]; ok {
 			t.Error("numaNode present, want omitted when numaAware is false")
 		}
@@ -170,8 +170,8 @@ func TestBuildResourceSliceNUMAAttribute(t *testing.T) {
 // A restarted operator must republish byte-identical slices rather than
 // churning them, which at fleet scale would be a significant write load.
 func TestBuildResourceSliceIsDeterministic(t *testing.T) {
-	a := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA)
-	b := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA)
+	a := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA, 0)
+	b := BuildResourceSlice(testPool(8, 4, true), testModel(), nodeA, 0)
 
 	if len(a.Spec.Devices) != len(b.Spec.Devices) {
 		t.Fatalf("device count differs: %d vs %d", len(a.Spec.Devices), len(b.Spec.Devices))
@@ -188,8 +188,8 @@ func TestBuildResourceSliceIsDeterministic(t *testing.T) {
 // Different nodes must not produce colliding device identities, or per-GPU
 // metrics across a fleet would be ambiguous.
 func TestBuildResourceSliceDiffersPerNode(t *testing.T) {
-	a := BuildResourceSlice(testPool(2, 0, false), testModel(), nodeA)
-	b := BuildResourceSlice(testPool(2, 0, false), testModel(), nodeB)
+	a := BuildResourceSlice(testPool(2, 0, false), testModel(), nodeA, 0)
+	b := BuildResourceSlice(testPool(2, 0, false), testModel(), nodeB, 0)
 
 	if a.Name == b.Name {
 		t.Errorf("slice names collide across nodes: %q", a.Name)
@@ -204,7 +204,7 @@ func TestBuildResourceSliceDiffersPerNode(t *testing.T) {
 // The spike established a hard DRA limit of 128 devices per ResourceSlice.
 // GPUPool validation caps gpusPerNode at 128, so the maximum must fit.
 func TestBuildResourceSliceAtMaxDeviceCount(t *testing.T) {
-	slice := BuildResourceSlice(testPool(128, 8, true), testModel(), nodeA)
+	slice := BuildResourceSlice(testPool(128, 8, true), testModel(), nodeA, 0)
 	if len(slice.Spec.Devices) != 128 {
 		t.Fatalf("got %d devices, want 128", len(slice.Spec.Devices))
 	}

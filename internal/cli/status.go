@@ -43,15 +43,27 @@ type PoolStatus struct {
 	Nodes     int32
 	Devices   int32
 	Allocated int
+	Occupied  int
 }
 
 // DeviceStatus is one published device and who holds it.
 type DeviceStatus struct {
-	Node      string
-	Pool      string
-	Device    string
-	Profile   string
+	Node    string
+	Pool    string
+	Device  string
+	Profile string
+
+	// Allocated means the scheduler gave this device to a pod.
 	Allocated bool
+
+	// Occupied means ghostgpu declared it busy before anything was submitted.
+	//
+	// Deliberately separate from Allocated. They are different states with
+	// different owners — one is the scheduler's doing, the other the pool
+	// spec's — and reporting occupancy as an allocation would invent a holder
+	// that does not exist.
+	Occupied bool
+
 	Pod       string
 	Namespace string
 }
@@ -166,6 +178,19 @@ func summarisePools(
 		}
 	}
 
+	// Counted from the published devices rather than from the pool's
+	// gpusOccupied, which counts physical cards. Under MIG one occupied card is
+	// many unavailable devices, and this column is about devices.
+	occupied := map[string]int{}
+	for i := range published {
+		slice := &published[i]
+		for _, d := range slice.Spec.Devices {
+			if isOccupied(d) {
+				occupied[slice.Labels[poolLabel]]++
+			}
+		}
+	}
+
 	out := make([]PoolStatus, 0, len(pools))
 	for i := range pools {
 		p := &pools[i]
@@ -179,6 +204,7 @@ func summarisePools(
 			Nodes:     p.Status.NodesMatched,
 			Devices:   p.Status.DevicesPublished,
 			Allocated: counts[p.Name],
+			Occupied:  occupied[p.Name],
 		})
 	}
 
@@ -203,6 +229,7 @@ func describeDevices(
 				Pool:      slice.Labels[poolLabel],
 				Device:    d.Name,
 				Allocated: held,
+				Occupied:  isOccupied(d),
 				Pod:       holder.pod,
 				Namespace: holder.namespace,
 			}
@@ -285,6 +312,19 @@ func describeGPUs(
 	return out
 }
 
+// isOccupied reports whether ghostgpu declared this device busy up front.
+//
+// Read from the device's own taints rather than from the pool spec, so that
+// what is reported is what the scheduler is actually acting on.
+func isOccupied(device resourcev1.Device) bool {
+	for _, taint := range device.Taints {
+		if taint.Key == gpu.OccupiedTaintKey {
+			return true
+		}
+	}
+	return false
+}
+
 // poolLabel marks a ResourceSlice as managed by a named GPUPool. It mirrors the
 // controller's constant; importing the controller here would drag the whole
 // manager into the CLI binary.
@@ -301,10 +341,15 @@ func table(write func(*tabwriter.Writer)) string {
 // RenderPools renders the per-pool summary.
 func RenderPools(report Report) string {
 	return table(func(w *tabwriter.Writer) {
-		_, _ = fmt.Fprintln(w, "POOL\tMODE\tNODES\tDEVICES\tALLOCATED\tFREE")
+		_, _ = fmt.Fprintln(w, "POOL\tMODE\tNODES\tDEVICES\tOCCUPIED\tALLOCATED\tFREE")
 		for _, p := range report.Pools {
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\n",
-				p.Name, p.Mode, p.Nodes, p.Devices, p.Allocated, int(p.Devices)-p.Allocated)
+			// Occupied devices were never available, so they are subtracted
+			// from free alongside the allocated ones. Reporting them as free
+			// would describe a fleet with more room than the scheduler sees.
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t%d\t%d\n",
+				p.Name, p.Mode, p.Nodes, p.Devices,
+				p.Occupied, p.Allocated,
+				max(0, int(p.Devices)-p.Allocated-p.Occupied))
 		}
 	})
 }
@@ -324,7 +369,8 @@ func RenderDevices(report Report, node string) string {
 			}
 
 			status, holder := "free", "-"
-			if d.Allocated {
+			switch {
+			case d.Allocated:
 				status = "allocated"
 				// An allocated claim with no consumer yet is genuinely
 				// different from a free device, so it says so rather than
@@ -333,6 +379,12 @@ func RenderDevices(report Report, node string) string {
 				if d.Pod != "" {
 					holder = d.Namespace + "/" + d.Pod
 				}
+			case d.Occupied:
+				// No holder, because there is no pod: this device was declared
+				// busy by the pool. Naming a fake holder would be a lie about
+				// what the cluster contains.
+				status = "occupied"
+				holder = "(declared)"
 			}
 			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", d.Node, d.Device, profile, status, holder)
 		}

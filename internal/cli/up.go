@@ -76,6 +76,12 @@ type UpOptions struct {
 	// MIGPartition optionally declares which MIG instances actually exist, as
 	// "profile=count" pairs. Empty models dynamic MIG.
 	MIGPartition string
+
+	// BusyPerNode declares how many of each node's GPUs are already occupied,
+	// so the fleet starts partly full. Uneven occupancy across a fleet needs
+	// per-selector entries and so has to be written in YAML; this covers the
+	// common "make it N-deep everywhere" case from one flag.
+	BusyPerNode int32
 }
 
 // ParsePartition turns a "3g.40gb=1,1g.10gb=4" flag value into partition
@@ -292,6 +298,15 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 		return nil, fmt.Errorf("mig-partition requires sharing-mode mig")
 	}
 
+	if opts.BusyPerNode < 0 || opts.BusyPerNode > opts.GPUsPerNode {
+		return nil, fmt.Errorf("busy-per-node must be between 0 and gpus-per-node (%d), got %d",
+			opts.GPUsPerNode, opts.BusyPerNode)
+	}
+	var occupancy []v1alpha1.OccupancyEntry
+	if opts.BusyPerNode > 0 {
+		occupancy = []v1alpha1.OccupancyEntry{{BusyPerNode: opts.BusyPerNode}}
+	}
+
 	selector, err := ParseSelector(opts.NodeSelector)
 	if err != nil {
 		return nil, err
@@ -333,6 +348,7 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 			},
 			SharingMode:  sharingMode,
 			MIGPartition: partition,
+			Occupancy:    occupancy,
 			Topology: v1alpha1.TopologySpec{
 				NVLinkDomainSize: opts.NVLinkDomainSize,
 				NUMAAware:        opts.NUMAAware,
