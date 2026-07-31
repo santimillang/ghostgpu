@@ -49,9 +49,18 @@ Usage:
   ghostgpu up [flags]       create or update a simulated GPU pool
   ghostgpu status [flags]   show what is published and who holds it
   ghostgpu capture [flags]  read a real cluster's GPU fleet and print manifests reproducing it
+  ghostgpu version          print the version of this binary
 
 Run "ghostgpu <command> -h" for the available flags.
 `
+
+// Populated by ldflags at release time. GoReleaser writes these exact symbols
+// by default, so the release configuration needs no ldflags of its own.
+var (
+	version = "dev"
+	commit  = ""
+	date    = ""
+)
 
 // say writes a line to w. Failures writing to stdout are not actionable in a
 // CLI, so the error is explicitly discarded rather than silently unchecked.
@@ -79,6 +88,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return runStatus(args, stdout, stderr)
 	case "capture":
 		return runCapture(args, stdout, stderr)
+	case "version", "--version":
+		say(stdout, "%s\n", cli.VersionLine(cli.BuildInfo{
+			Version: version,
+			Commit:  commit,
+			Date:    date,
+		}))
+		return nil
 	default:
 		say(stderr, "%s", usage)
 		os.Exit(2)
