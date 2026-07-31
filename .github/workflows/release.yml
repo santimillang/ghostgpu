@@ -20,6 +20,8 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write
+  attestations: write
 
 env:
   REGISTRY: ghcr.io
@@ -57,14 +59,47 @@ jobs:
       # Multi-arch because a good share of the people who would evaluate a
       # laptop-scale simulator are on arm64 Macs.
       - name: Build and push the manager image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          sbom: true
+          provenance: mode=max
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      # Keyless: the signature is bound to this workflow's OIDC identity, so
+      # there is no key to store, rotate, or leak. Signs the digest, not the
+      # tag, because a tag can move and a signature over a mutable reference
+      # proves nothing.
+      - name: Sign the image
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+
+      - name: Attest the image build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      # A signing story nobody has verified is a claim, not a control. No
+      # event guard here: workflow_dispatch pushes the image for real (the
+      # build step above has no guard either), so this is the only place the
+      # dry run rehearses the thing an admission policy would actually check.
+      - name: Verify the signature we just made
+        run: |
+          cosign verify \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/.github/workflows/release.yml@.*" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       # Ordered before the release publish step so a GoReleaser failure aborts
       # while nothing user-visible has been created. mode: append means it adds
@@ -76,6 +111,15 @@ jobs:
           args: release --clean ${{ github.event_name == 'workflow_dispatch' && '--snapshot' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Only on a real release: a workflow_dispatch snapshot build isn't
+      # published, so there is nothing at these paths worth a provenance
+      # claim tied to a release that doesn't exist.
+      - name: Attest the CLI archives
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*.tar.gz,dist/*.zip"
 
       # The chart's version and the operator it deploys are both the tag: one
       # release, one number, nothing for a user to correlate.
@@ -158,6 +202,15 @@ jobs:
             helm install ghostgpu oci://ghcr.io/${{ github.repository_owner }}/charts/ghostgpu \
               --version ${{ steps.chart.outputs.semver }} \
               --namespace ghostgpu-system --create-namespace
+            ```
+
+            ## Verify
+
+            ```sh
+            cosign verify \
+              --certificate-identity-regexp "^https://github.com/${{ github.repository }}/.github/workflows/release.yml@.*" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
             ```
 
             ghostgpu only ever modifies nodes carrying kwok's

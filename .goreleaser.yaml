@@ -42,6 +42,9 @@ archives:
 checksum:
   name_template: checksums.txt
 
+sboms:
+  - artifacts: archive
+
 # The GitHub Release is created by the workflow's existing publish step, which
 # also attaches install.yaml. GoReleaser must not create or replace it.
 release:
