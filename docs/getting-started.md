@@ -19,15 +19,6 @@ kwokctl create cluster --name ghostgpu --runtime kind \
       --namespace ghostgpu-system --create-namespace
     ```
 
-=== "helm repo add"
-
-    ```sh
-    helm repo add ghostgpu https://santimillang.github.io/ghostgpu
-    helm repo update
-    helm install ghostgpu ghostgpu/ghostgpu \
-      --namespace ghostgpu-system --create-namespace
-    ```
-
 === "Single manifest"
 
     ```sh
