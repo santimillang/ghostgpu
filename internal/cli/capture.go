@@ -19,6 +19,7 @@ package cli
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -376,7 +377,12 @@ func physicalGPUs(
 	// counting published devices: without MIG one device is one card, but with
 	// it one card is many devices.
 	if !partitioned {
-		if n, err := strconv.Atoi(node.Labels[gpu.LabelGPUCount]); err == nil && n > 0 {
+		// ParseInt with an explicit bit size rather than Atoi. A node label is
+		// arbitrary cluster data, and narrowing an oversized value to int32
+		// wrapped silently: a gpu.count of 4294967304 captured as 8, quietly
+		// reproducing a fleet the wrong size. Out of range now fails to parse,
+		// and the fallbacks below decide instead.
+		if n, err := strconv.ParseInt(node.Labels[gpu.LabelGPUCount], 10, 32); err == nil && n > 0 {
 			return int32(n), nil
 		}
 		if n := countDevices(published); n > 0 {
@@ -553,7 +559,7 @@ func topologyOf(published []*resourcev1.ResourceSlice) v1alpha1.TopologySpec {
 	// domain and its size reproduces that same grouping.
 	var size int32
 	for _, members := range domains {
-		size = max(size, int32(len(members)))
+		size = max(size, narrow(len(members)))
 	}
 
 	return v1alpha1.TopologySpec{NVLinkDomainSize: size, NUMAAware: numaAware}
@@ -574,7 +580,7 @@ func indexSlicesByNode(published []resourcev1.ResourceSlice) map[string][]*resou
 func countDevices(published []*resourcev1.ResourceSlice) int32 {
 	var total int32
 	for _, slice := range published {
-		total += int32(len(slice.Spec.Devices))
+		total += narrow(len(slice.Spec.Devices))
 	}
 	return total
 }
@@ -586,7 +592,7 @@ func countCounterSets(published []*resourcev1.ResourceSlice) int32 {
 			names[set.Name] = true
 		}
 	}
-	return int32(len(names))
+	return narrow(len(names))
 }
 
 // migCapacity reads the MIG instances a node advertises, keyed by profile.
@@ -795,4 +801,18 @@ func (n *namer) pick(base string) string {
 			return candidate
 		}
 	}
+}
+
+// narrow converts a slice length to int32.
+//
+// A length is never negative, and a slice big enough to overflow int32 would
+// have exhausted memory long before it got here, so this saturates rather than
+// wrapping. Explicit because a bare int32(len(x)) is the same shape as the
+// conversion that silently miscounted a captured fleet, and the two should not
+// look alike.
+func narrow(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(n)
 }

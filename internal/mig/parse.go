@@ -52,8 +52,11 @@ func ParseProfileName(name string) (Profile, bool) {
 		return Profile{}, false
 	}
 
-	slices, err := strconv.Atoi(match[1])
-	if err != nil || slices < 1 {
+	// ParseInt with an explicit bit size: a profile name is arbitrary input,
+	// and a wrapped slice count would describe hardware that cannot exist.
+	slices64, err := strconv.ParseInt(match[1], 10, 32)
+	slices := int32(slices64)
+	if err != nil || slices64 < 1 {
 		return Profile{}, false
 	}
 	memoryGiB, err := strconv.Atoi(match[2])
@@ -66,6 +69,6 @@ func ParseProfileName(name string) (Profile, bool) {
 		// Built with NewQuantity rather than parsed from a formatted string, so
 		// no input can reach a panicking MustParse.
 		Memory: *resource.NewQuantity(int64(memoryGiB)*gibibyte, resource.BinarySI),
-		Slices: int32(slices),
+		Slices: slices,
 	}, true
 }

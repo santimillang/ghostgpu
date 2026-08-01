@@ -174,7 +174,12 @@ func summarizeCard(card *Card) {
 	}
 
 	if card.MemoryMiB > 0 {
-		card.Reading.FBUsedPercent = int32(usedMiB * 100 / card.MemoryMiB)
+		// Clamped to a percentage before narrowing. Framebuffer used is
+		// derived from declared percentages of the memory on the card, so it
+		// cannot legitimately exceed 100 - but the arithmetic is int64, and a
+		// wrapped percentage would be reported to Prometheus as fact.
+		percent := min(max(usedMiB*100/card.MemoryMiB, 0), 100)
+		card.Reading.FBUsedPercent = int32(percent)
 	}
 }
 
@@ -191,7 +196,10 @@ func cardIndex(deviceName string) (int32, bool) {
 	}
 	digits, _, _ := strings.Cut(rest, "-")
 
-	index, err := strconv.Atoi(digits)
+	// ParseInt with an explicit bit size rather than Atoi: these digits come
+	// from a device name in cluster data, and narrowing an oversized value
+	// would wrap into a plausible index for a device that does not exist.
+	index, err := strconv.ParseInt(digits, 10, 32)
 	if err != nil || index < 0 {
 		return 0, false
 	}
@@ -223,7 +231,7 @@ func faultedXID(device resourcev1.Device) (int32, bool) {
 			// A fault with no XID declared: out of service, driver silent.
 			return 0, true
 		}
-		xid, err := strconv.Atoi(digits)
+		xid, err := strconv.ParseInt(digits, 10, 32)
 		if err != nil {
 			return 0, true
 		}

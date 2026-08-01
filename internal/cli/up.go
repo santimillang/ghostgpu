@@ -31,6 +31,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -239,9 +240,27 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
+	// The pool object is named "<name>-pool", so the suffixed form is what has
+	// to be legal and has to fit, not the name as typed.
+	for _, objectName := range []string{opts.Name, opts.Name + "-pool"} {
+		if errs := validation.IsDNS1123Subdomain(objectName); len(errs) > 0 {
+			return nil, fmt.Errorf("invalid name %q: %s", objectName, strings.Join(errs, "; "))
+		}
+	}
+
 	if opts.Product == "" {
 		return nil, fmt.Errorf("gpu product name is required")
 	}
+	// productName is written verbatim into the nvidia.com/gpu.product node
+	// label. A value the API server will not accept makes every node patch
+	// fail, and the pool then publishes nothing without explaining itself —
+	// the reason reaches only the operator's logs.
+	if errs := validation.IsValidLabelValue(opts.Product); len(errs) > 0 {
+		return nil, fmt.Errorf(
+			"invalid gpu product name %q: it becomes the nvidia.com/gpu.product node label, so %s",
+			opts.Product, strings.Join(errs, "; "))
+	}
+
 	if opts.GPUsPerNode < 1 || opts.GPUsPerNode > MaxGPUsPerNode {
 		return nil, fmt.Errorf("gpus-per-node must be between 1 and %d, got %d",
 			MaxGPUsPerNode, opts.GPUsPerNode)
@@ -256,6 +275,12 @@ func BuildManifests(opts UpOptions) ([]client.Object, error) {
 	memory, err := resource.ParseQuantity(opts.Memory)
 	if err != nil {
 		return nil, fmt.Errorf("invalid memory %q: %w", opts.Memory, err)
+	}
+	// Memory is rendered into nvidia.com/gpu.memory as a plain integer of
+	// mebibytes, so a negative quantity produces "-81920" — neither a legal
+	// label value nor an amount of memory any hardware has.
+	if memory.Sign() <= 0 {
+		return nil, fmt.Errorf("memory must be greater than zero, got %q", opts.Memory)
 	}
 
 	sharingMode := v1alpha1.SharingMode(opts.SharingMode)
