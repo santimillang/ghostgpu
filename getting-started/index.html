@@ -847,7 +847,8 @@
 
 
 <h1 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
-<p>You need <a href="https://kwok.sigs.k8s.io/docs/user/installation/"><code>kwokctl</code></a>, <code>kind</code>, and Docker.</p>
+<p>You need <a href="https://kwok.sigs.k8s.io/docs/user/installation/"><code>kwokctl</code></a>, <a href="https://kind.sigs.k8s.io/docs/user/quick-start/#installation"><code>kind</code></a>, <a href="https://kubernetes.io/docs/tasks/tools/"><code>kubectl</code></a>, <a href="https://helm.sh/docs/intro/install/">Helm</a>, and Docker.</p>
+<p>You do <strong>not</strong> need a GPU, an NVIDIA driver, or a GPU node. That is the point — everything below runs on a laptop.</p>
 <h2 id="1-a-kwok-cluster-with-dra-enabled">1. A kwok cluster with DRA enabled<a class="headerlink" href="#1-a-kwok-cluster-with-dra-enabled" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>kwokctl<span class="w"> </span>create<span class="w"> </span>cluster<span class="w"> </span>--name<span class="w"> </span>ghostgpu<span class="w"> </span>--runtime<span class="w"> </span>kind<span class="w"> </span><span class="se">\</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>--kube-feature-gates<span class="w"> </span><span class="s2">&quot;DynamicResourceAllocation=true&quot;</span><span class="w"> </span><span class="se">\</span>
