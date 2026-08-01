@@ -30,6 +30,45 @@ spec:
         control-plane: controller-manager
         app.kubernetes.io/name: ghostgpu
     spec:
+      # kwokctl cordons the one real node in a `kwokctl create cluster --runtime
+      # kind` cluster, so simulated workload lands on simulated nodes rather
+      # than on the machine hosting them.
+      #
+      # The ghostgpu operator is not simulated. It is a real Deployment that
+      # needs a real node, and the cluster the quickstart tells people to create
+      # has exactly one — the cordoned one. Without this toleration the operator
+      # sits Pending forever and every documented install appears to hang, which
+      # is what a first-time user actually met before this was added.
+      #
+      # Tolerating the taint is safe: it only says a cordoned node is still
+      # somewhere this may run. A controller that keeps no local state has
+      # nothing to lose by running on a node marked for drain.
+      tolerations:
+        - key: node.kubernetes.io/unschedulable
+          operator: Exists
+          effect: NoSchedule
+      # ...but never onto a simulated node. `kwokctl scale node` creates fake
+      # nodes with NO taint, so nothing otherwise stops the scheduler putting
+      # the operator on one — and a kwok node executes nothing. The pod is
+      # reported Running, its container never starts, it reconciles nothing and
+      # its logs are unreachable. That is strictly worse than Pending, which is
+      # at least visibly broken.
+      #
+      # Two terms because they are ORed: a real node usually carries no `type`
+      # label at all, and `NotIn` does not match a key that is absent, so
+      # `DoesNotExist` is what covers ordinary nodes.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: type
+                    operator: DoesNotExist
+              - matchExpressions:
+                  - key: type
+                    operator: NotIn
+                    values:
+                      - kwok
       # TODO(user): Uncomment the following code to configure the nodeAffinity expression
       # according to the platforms which are supported by your solution.
       # It is considered best practice to support multiple architectures. You can

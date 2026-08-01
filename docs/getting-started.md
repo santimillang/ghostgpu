@@ -10,6 +10,15 @@ kwokctl create cluster --name ghostgpu --runtime kind \
   --kube-runtime-config "resource.k8s.io/v1=true"
 ```
 
+A fresh cluster has no simulated nodes, so there is nothing yet to put GPUs on. Add some:
+
+```sh
+kwokctl scale node --name ghostgpu --replicas 2
+```
+
+!!! note "The operator runs on the real node"
+    `kwokctl` cordons the single real node so simulated workload stays off the machine hosting it. ghostgpu's operator is *not* simulated — it is an ordinary Deployment that needs a real node — so it ships with a toleration for `node.kubernetes.io/unschedulable`. Without that it would sit `Pending` forever in exactly the cluster this guide tells you to create.
+
 ## 2. Install ghostgpu
 
 === "Helm"
