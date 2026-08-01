@@ -39,14 +39,34 @@ const (
 // scrape reads the simulated fleet's metrics the way Prometheus would, from
 // inside the cluster.
 //
-// Run from a throwaway pod rather than through kubectl port-forward: a
-// port-forward is a long-lived background process that has to be cleaned up and
-// raced against, whereas this either returns the exposition or fails.
+// A throwaway pod rather than kubectl port-forward: a port-forward is a
+// long-lived background process that has to be cleaned up and raced against,
+// whereas this either returns the exposition or fails.
+//
+// Deliberately NOT `kubectl run -i --rm`. That attaches to the pod, and for a
+// container which exits almost immediately kubectl can emit the stream twice —
+// returning the whole exposition duplicated, so every device was counted twice
+// and an assertion expecting two idle GPUs intermittently saw four. Waiting for
+// the pod to finish and reading its log returns the curl output exactly once.
 func scrape(g Gomega) string {
+	remove := func() {
+		_, _ = utils.Run(exec.Command("kubectl", "delete", "pod", "metrics-scrape",
+			"--ignore-not-found", "--wait=true"))
+	}
+	remove()
+	defer remove()
+
 	out, err := utils.Run(exec.Command("kubectl", "run", "metrics-scrape",
-		"--rm", "-i", "--restart=Never", "--image=curlimages/curl:8.11.1",
+		"--restart=Never", "--image=curlimages/curl:8.11.1",
 		"--command", "--",
 		"curl", "-s", fmt.Sprintf("http://ghostgpu-gpu-metrics.%s.svc:9400/metrics", namespace)))
+	g.Expect(err).NotTo(HaveOccurred(), out)
+
+	out, err = utils.Run(exec.Command("kubectl", "wait", "pod/metrics-scrape",
+		"--for=jsonpath={.status.phase}=Succeeded", "--timeout=60s"))
+	g.Expect(err).NotTo(HaveOccurred(), out)
+
+	out, err = utils.Run(exec.Command("kubectl", "logs", "metrics-scrape"))
 	g.Expect(err).NotTo(HaveOccurred(), out)
 	return out
 }
