@@ -101,7 +101,13 @@ Do not silently upgrade something from "approximated" to "faithful" in the docs 
 ## Cutting a release
 
 1. Run the release workflow with `workflow_dispatch` and a throwaway version
-   (`v0.0.0-dryrun`). It builds everything and publishes nothing.
+   (`v0.0.0-dryrun`) to rehearse it before trusting it with a real tag. It
+   builds and **does** push the image, sign it, and verify that signature —
+   an untested signing story is a claim, not a control, so this part is
+   deliberately not a no-op. It packages the chart but does not push it, and
+   it does **not** move the `latest` image tag or create a GitHub Release;
+   the CLI archives, `install.yaml`, and the packaged chart are attached to
+   the workflow run as a downloadable artifact instead.
 2. Confirm the artifacts: `install.yaml`, five CLI archives, `checksums.txt`,
    and a packaged chart.
 3. Move the `CHANGELOG.md` entries out of `Unreleased` under the new version.
