@@ -29,6 +29,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"time"
 
@@ -275,9 +276,24 @@ func runUp(args []string, stdout, stderr io.Writer) error {
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
-	opts.GPUsPerNode = int32(gpus)
-	opts.NVLinkDomainSize = int32(nvlink)
-	opts.BusyPerNode = int32(busy)
+	// flag.Int parses into a 64-bit int while the API stores these as int32, so
+	// narrowing silently wraps: --gpus-per-node 4294967304 became 8 and applied
+	// a fleet nobody asked for. Range-check before narrowing, so the number the
+	// user typed is the number named in the error.
+	for _, f := range []struct {
+		name  string
+		value int
+		into  *int32
+	}{
+		{"gpus-per-node", gpus, &opts.GPUsPerNode},
+		{"nvlink-domain-size", nvlink, &opts.NVLinkDomainSize},
+		{"busy-per-node", busy, &opts.BusyPerNode},
+	} {
+		if f.value > math.MaxInt32 || f.value < math.MinInt32 {
+			return fmt.Errorf("--%s is out of range: %d", f.name, f.value)
+		}
+		*f.into = int32(f.value)
+	}
 
 	objs, err := cli.BuildManifests(opts)
 	if err != nil {

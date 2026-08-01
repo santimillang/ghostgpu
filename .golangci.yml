@@ -11,6 +11,7 @@ linters:
     - ginkgolinter
     - goconst
     - gocyclo
+    - gosec
     - govet
     - ineffassign
     - lll
@@ -53,6 +54,21 @@ linters:
           - dupl
           - lll
         path: internal/*
+      # gosec is enabled for G109: a narrowing conversion of parsed external
+      # data, which is what silently reproduced a fleet of the wrong size when
+      # a node label carried an oversized gpu.count. G115 is the same idea
+      # applied to slice lengths and already-bounded arithmetic, where the
+      # conversion cannot overflow and the guard it wants fights the modernize
+      # linter over min/max. Excluded deliberately, and narrowly.
+      - linters:
+          - gosec
+        text: G115
+      # Test code runs kubectl by design (G204) and embeds fixture strings that
+      # pattern-match as credentials (G101). Neither is a finding about the
+      # operator that ships.
+      - linters:
+          - gosec
+        path: (_test\.go|^test/)
     paths:
       - third_party$
       - builtin$
