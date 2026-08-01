@@ -45,11 +45,19 @@ checksum:
 sboms:
   - artifacts: archive
 
-# The GitHub Release is created by the workflow's existing publish step, which
-# also attaches install.yaml. GoReleaser must not create or replace it.
+# mode: append means GoReleaser creates the release if one doesn't exist yet
+# and only adds assets to it thereafter, rather than owning it outright. But
+# with disable: false and no draft setting, GoReleaser's release would become
+# user-visible as soon as it finishes uploading — BEFORE the chart is pushed,
+# the installer is generated, or release notes are written. Any later
+# workflow failure would then leave a public, incomplete release on a tag
+# that cannot be re-cut. draft: true keeps it hidden; the workflow's
+# softprops/action-gh-release step (which defaults draft to false) publishes
+# it at the very end, once every asset and the real notes are in place.
 release:
   disable: false
   mode: append
+  draft: true
 
 changelog:
   disable: true
