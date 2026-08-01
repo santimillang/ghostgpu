@@ -36,4 +36,4 @@ Explicitly out of scope. ghostgpu does not attempt these, and will report rather
 
 Do not silently upgrade something from *approximated* to *faithful* without evidence. Where a claim is about scheduler or API-server behaviour, the evidence has to come from a live cluster: envtest runs no `kube-scheduler`, so it cannot settle a scheduling question.
 
-Several design decisions in this project were reversed by spikes that contradicted the documentation — those are recorded in the [design notes](../design/2026-07-29-spike-findings.md).
+Several design decisions in this project were reversed by spikes that contradicted the documentation — those are recorded in the [design notes](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-29-spike-findings.md).

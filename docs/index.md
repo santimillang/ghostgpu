@@ -22,7 +22,7 @@ Already verified against a real `kube-scheduler`: pods are placed against simula
 | [Pre-existing occupancy and fragmentation](simulating/occupancy.md) | working |
 | [DCGM-shaped metrics with per-pod attribution](simulating/metrics.md) | working |
 | [Fault injection](simulating/faults.md) — XID, device loss, drain-before-reboot | working |
-| Behavioural phase timeline (download → warmup → training) | deferred, [see the research](design/2026-07-31-behavioral-simulation-research.md) |
+| Behavioural phase timeline (download → warmup → training) | deferred, [see the research](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-behavioral-simulation-research.md) |
 
 ## The differentiator
 

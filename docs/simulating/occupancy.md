@@ -27,7 +27,7 @@ Occupied GPUs are still published — a busy fleet has the same hardware as an i
 
 Lifting the occupancy releases the devices, so a pending job can be made schedulable mid-test.
 
-Both paths were verified against a live scheduler with negative controls before the design was chosen: a claim is refused when only occupied devices remain, and the *same* pending claim is placed the moment the occupancy is lifted. See the [occupancy spike findings](../design/2026-07-31-occupancy-spike-findings.md).
+Both paths were verified against a live scheduler with negative controls before the design was chosen: a claim is refused when only occupied devices remain, and the *same* pending claim is placed the moment the occupancy is lifted. See the [occupancy spike findings](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-occupancy-spike-findings.md).
 
 ## What ghostgpu will not do
 

@@ -57,4 +57,4 @@ Entries are first-match-wins and layer over `whenAllocated`, so one only has to 
 
 Rules like `avg_over_time(DCGM_FI_DEV_GPU_UTIL[24h]) < 10` are computed by Prometheus from its own history, which ghostgpu cannot backfill. ghostgpu drives the current value; testing a long-window rule means shortening its window.
 
-This is also why the behavioural phase timeline was deferred rather than built — see the [research](../design/2026-07-31-behavioral-simulation-research.md).
+This is also why the behavioural phase timeline was deferred rather than built — see the [research](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-behavioral-simulation-research.md).
