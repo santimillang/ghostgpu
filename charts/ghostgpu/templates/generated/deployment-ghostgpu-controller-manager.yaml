@@ -21,6 +21,18 @@ spec:
         app.kubernetes.io/name: ghostgpu
         control-plane: controller-manager
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: type
+                operator: DoesNotExist
+            - matchExpressions:
+              - key: type
+                operator: NotIn
+                values:
+                - kwok
       containers:
       - args:
         - --metrics-bind-address=:8443
@@ -69,4 +81,8 @@ spec:
           type: RuntimeDefault
       serviceAccountName: ghostgpu-controller-manager
       terminationGracePeriodSeconds: 10
+      tolerations:
+      - effect: NoSchedule
+        key: node.kubernetes.io/unschedulable
+        operator: Exists
       volumes: []

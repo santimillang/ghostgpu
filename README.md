@@ -28,10 +28,11 @@ Already verified against a real `kube-scheduler`: pods are placed against simula
 ## Quickstart
 
 ```sh
-# 1. A kwok cluster with DRA enabled
+# 1. A kwok cluster with DRA enabled, and two simulated nodes to put GPUs on
 kwokctl create cluster --name ghostgpu --runtime kind \
   --kube-feature-gates "DynamicResourceAllocation=true" \
   --kube-runtime-config "resource.k8s.io/v1=true"
+kwokctl scale node --name ghostgpu --replicas 2
 
 # 2. Install ghostgpu
 helm install ghostgpu oci://ghcr.io/santimillang/charts/ghostgpu \
