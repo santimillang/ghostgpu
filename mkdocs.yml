@@ -14,6 +14,7 @@ site_dir: site
 # site. Pages that reference them link to GitHub instead.
 exclude_docs: |
   design/
+  requirements.txt
 
 theme:
   name: material
