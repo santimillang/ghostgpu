@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="ghostgpu mascot: a friendly ghost with a GPU fan">
+  <title>ghostgpu</title>
+
+  <!-- Body: rounded dome with a wavy hem. One flat colour so the mark stays
+       legible at favicon size and on both light and dark backgrounds. -->
+  <path
+    d="M20 104 L20 68 a44 44 0 0 1 88 0 L108 104
+       q-11 13 -22 0
+       q-11 -13 -22 0
+       q-11 13 -22 0
+       q-11 -13 -22 0
+       Z"
+    fill="#6366f1"/>
+
+  <!-- Eyes -->
+  <ellipse cx="48" cy="62" rx="6.5" ry="8" fill="#1e1b4b"/>
+  <ellipse cx="80" cy="62" rx="6.5" ry="8" fill="#1e1b4b"/>
+
+  <!-- A GPU cooling fan where a belly would be: enough to read as hardware
+       without drawing a literal graphics card, which turns to mush below 32px.
+       One blade definition rotated in exact 90-degree steps, so the symmetry is
+       structural rather than four hand-drawn paths that only look even. Each
+       blade spans 50 degrees of its 90-degree sector, leaving even gaps. -->
+  <g transform="translate(64 90)">
+    <circle r="14" fill="#eef2ff" opacity="0.95"/>
+    <g fill="#6366f1">
+      <path d="M0 0 L0.96 -10.96 A11 11 0 0 1 9.01 -6.31 Z"/>
+      <path d="M0 0 L0.96 -10.96 A11 11 0 0 1 9.01 -6.31 Z" transform="rotate(90)"/>
+      <path d="M0 0 L0.96 -10.96 A11 11 0 0 1 9.01 -6.31 Z" transform="rotate(180)"/>
+      <path d="M0 0 L0.96 -10.96 A11 11 0 0 1 9.01 -6.31 Z" transform="rotate(270)"/>
+    </g>
+    <circle r="3.2" fill="#1e1b4b"/>
+  </g>
+</svg>
