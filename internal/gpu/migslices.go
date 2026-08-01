@@ -28,7 +28,7 @@ import (
 )
 
 // Hard API limits, both measured against a live API server rather than read
-// from documentation. See docs/superpowers/specs/2026-07-30-mig-sharding-findings.md.
+// from documentation. See docs/design/2026-07-30-mig-sharding-findings.md.
 const (
 	// MaxCounterSetsPerSlice is the ceiling on sharedCounters in one
 	// ResourceSlice. MIG needs one counter set per physical GPU, so this caps
