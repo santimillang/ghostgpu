@@ -1,0 +1,3 @@
+# Pinned so a theme upgrade cannot silently change the published site.
+# Bumping this is a commit, which is the point.
+mkdocs-material==9.6.20

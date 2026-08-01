@@ -133,13 +133,19 @@ spec:
           periodSeconds: 10
         # TODO(user): Configure the resources accordingly based on the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+        # The exporter watches Pods, Nodes, ResourceClaims and ResourceSlices
+        # cluster-wide. The kubebuilder default of 128Mi is sized for a
+        # controller watching a handful of its own CRs, not for the
+        # thousand-node fleets this project exists to simulate, and the first
+        # person to scale-test it would have met an OOMKill. The Pod cache is
+        # also stripped to labels only (see cmd/main.go).
         resources:
           limits:
             cpu: 500m
-            memory: 128Mi
+            memory: 512Mi
           requests:
             cpu: 10m
-            memory: 64Mi
+            memory: 128Mi
         volumeMounts: []
       volumes: []
       serviceAccountName: controller-manager

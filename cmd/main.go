@@ -25,11 +25,15 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -46,6 +50,32 @@ var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
+
+// keepPodLabelsOnly strips a cached Pod down to what the metrics exporter
+// reads: its namespace, name, and labels.
+//
+// Everything else — spec, status, annotations, managed fields — is dropped
+// before the object enters the cache, so a cluster-wide Pod informer costs
+// roughly the size of the label maps rather than the size of every Pod.
+// Anything not a Pod is passed through untouched, because a transform is
+// called for whatever the cache is told to hold.
+func keepPodLabelsOnly(obj any) (any, error) {
+	pod, ok := obj.(*corev1.Pod)
+	if !ok {
+		return obj, nil
+	}
+
+	return &corev1.Pod{
+		TypeMeta: pod.TypeMeta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            pod.Name,
+			Namespace:       pod.Namespace,
+			UID:             pod.UID,
+			ResourceVersion: pod.ResourceVersion,
+			Labels:          pod.Labels,
+		},
+	}, nil
+}
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -171,6 +201,17 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "8fc45ed3.ghostgpu.dev",
+		// The metrics exporter lists Pods cluster-wide to match utilization
+		// profiles against the job holding each GPU, and it reads nothing but
+		// their labels. Without this transform the cache would hold every full
+		// Pod object in the cluster — spec, status, managed fields and all —
+		// which at the thousand-node scale ghostgpu is built for spends most of
+		// the operator's memory on fields nothing ever reads.
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Pod{}: {Transform: keepPodLabelsOnly},
+			},
+		},
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly

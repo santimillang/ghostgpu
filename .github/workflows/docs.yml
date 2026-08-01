@@ -29,10 +29,14 @@ on:
 permissions: {}
 
 jobs:
+  # Read-only, and the required status check. This job runs on pull requests
+  # from forks, so it must hold no write access: it installs a third-party
+  # package from PyPI, and a compromised release of that package would
+  # otherwise be handed a token that can push to this repository.
   build:
     name: docs
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,10 +47,12 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Pinned: an unpinned theme upgrade would change the published site
-      # without a commit explaining why.
+      # Version-pinned so a theme upgrade cannot change the published site
+      # without a commit explaining why. Not hash-pinned: that would be worth
+      # doing when this job held a write token, which is exactly what the split
+      # above removed.
       - name: Install mkdocs-material
-        run: pip install "mkdocs-material==9.6.20"
+        run: pip install -r docs/requirements.txt
 
       # --strict fails the build on a broken internal link or a page missing
       # from the nav. Docs that lie are the specific failure this project
@@ -54,8 +60,30 @@ jobs:
       - name: Build the site
         run: mkdocs build --strict
 
+      - name: Upload the built site
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: site
+          path: site/
+          retention-days: 1
+
+  # Write access lives here, and this job never runs on a pull request. It does
+  # not check out or execute repository code — it only publishes the artifact
+  # the build job produced.
+  deploy:
+    name: deploy
+    needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: site
+          path: site
+
       - name: Deploy to gh-pages
-        if: github.event_name != 'pull_request'
         uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
