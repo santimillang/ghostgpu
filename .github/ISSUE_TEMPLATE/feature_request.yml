@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         ghostgpu's scope is defined by the design spec in
-        `docs/superpowers/specs/`. Proposals that expand scope should say what
+        `docs/design/`. Proposals that expand scope should say what
         they would add — and, just as importantly, what stays out of scope.
 
   - type: textarea

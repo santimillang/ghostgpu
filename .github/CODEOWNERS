@@ -10,4 +10,4 @@
 
 # Design specs record why decisions were made; changing them changes the
 # contract the implementation is held to.
-/docs/superpowers/specs/ @santimillang
+/docs/design/ @santimillang

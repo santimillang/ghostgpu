@@ -219,7 +219,7 @@ ghost-mig-0  gpu-1  0/7     0/80Gi
 
 The budget view answers the question that is genuinely tedious to work out by hand: how much of a physical GPU is already spoken for, and therefore why another MIG instance will not fit. Everything is derived from objects already in the cluster — ghostgpu stores no allocation state of its own.
 
-ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation. A node without it is never touched, whatever the pool selector matches — see [SECURITY.md](SECURITY.md).
+ghostgpu only ever modifies nodes carrying kwok's `kwok.x-k8s.io/node` annotation. A node without it is never touched, whatever the pool selector matches — see [SECURITY.md](.github/SECURITY.md).
 
 ## Scenarios
 
@@ -261,11 +261,11 @@ make test-e2e             # e2e against kwok + kind
 
 ## Contributing
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, testing layers, and PR process.
+Contributions are welcome — see [CONTRIBUTING.md](.github/CONTRIBUTING.md) for the development setup, testing layers, and PR process.
 
-- [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Governance](GOVERNANCE.md) · [Maintainers](MAINTAINERS.md)
-- [Security policy and threat model](SECURITY.md)
+- [Code of Conduct](.github/CODE_OF_CONDUCT.md)
+- [Design notes and spike findings](docs/design)
+- [Security policy and threat model](.github/SECURITY.md)
 - [Changelog](CHANGELOG.md)
 
 ## License
