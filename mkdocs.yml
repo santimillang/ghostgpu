@@ -8,8 +8,17 @@ edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: site
 
+# The design notes and spike findings stay in the repository — they are
+# engineering evidence, and code comments cite them by path — but they are
+# working documents, not documentation, so they are kept out of the published
+# site. Pages that reference them link to GitHub instead.
+exclude_docs: |
+  design/
+
 theme:
   name: material
+  logo: assets/ghostgpu.svg
+  favicon: assets/ghostgpu.svg
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -66,15 +75,6 @@ nav:
   - Scenarios: scenarios.md
   - Reference:
       - Fidelity contract: reference/fidelity.md
-  - Design notes:
-      - Overview: design/2026-07-29-ghostgpu-design.md
-      - DRA feasibility spike: design/2026-07-29-spike-findings.md
-      - MIG sharding limits: design/2026-07-30-mig-sharding-findings.md
-      - Occupancy spike: design/2026-07-31-occupancy-spike-findings.md
-      - Fault injection spike: design/2026-07-31-fault-injection-spike-findings.md
-      - Behavioural simulation research: design/2026-07-31-behavioral-simulation-research.md
-      - Helm CRD ordering spike: design/2026-07-31-helm-crd-ordering-spike.md
-      - Distribution design: design/2026-07-31-distribution-design.md
 
 extra:
   social:

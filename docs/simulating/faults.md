@@ -33,4 +33,4 @@ Repairing a fleet is just removing the entry, which makes a pending job schedula
 
 The mechanism was chosen from a spike rather than from documentation. A `NoExecute` DRA device taint was verified live to evict a running workload **and clear its claim allocation** — that deallocation is what lets the job reschedule — with a negative control confirming an identical untainted pod survives the same wait.
 
-See the [fault injection spike findings](../design/2026-07-31-fault-injection-spike-findings.md).
+See the [fault injection spike findings](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-fault-injection-spike-findings.md).

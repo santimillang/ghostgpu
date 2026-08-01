@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="ghostgpu mascot: a friendly ghost with a GPU fan">
+  <title>ghostgpu</title>
+
+  <!-- Body: rounded dome with a wavy hem. One flat colour so the mark stays
+       legible at favicon size and on both light and dark backgrounds. -->
+  <path
+    d="M20 104 L20 68 a44 44 0 0 1 88 0 L108 104
+       q-11 13 -22 0
+       q-11 -13 -22 0
+       q-11 13 -22 0
+       q-11 -13 -22 0
+       Z"
+    fill="#6366f1"/>
+
+  <!-- Eyes -->
+  <ellipse cx="48" cy="62" rx="6.5" ry="8" fill="#1e1b4b"/>
+  <ellipse cx="80" cy="62" rx="6.5" ry="8" fill="#1e1b4b"/>
+
+  <!-- A GPU cooling fan where a belly would be: enough to read as hardware
+       without drawing a literal graphics card, which turns to mush below 32px. -->
+  <g transform="translate(64 90)">
+    <circle r="14" fill="#eef2ff" opacity="0.95"/>
+    <g fill="#6366f1">
+      <path d="M0 -11 a11 11 0 0 1 8 5 L0 0 Z"/>
+      <path d="M9.5 5.5 a11 11 0 0 1 -3 8.5 L0 0 Z"/>
+      <path d="M-6.5 14 a11 11 0 0 1 -8 -5 L0 0 Z"/>
+      <path d="M-11 -2 a11 11 0 0 1 6 -8 L0 0 Z"/>
+    </g>
+    <circle r="3" fill="#1e1b4b"/>
+  </g>
+</svg>

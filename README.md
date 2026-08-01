@@ -1,3 +1,5 @@
+<img src="docs/assets/ghostgpu.svg" width="88" alt="">
+
 # ghostgpu
 
 [![Tests](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml/badge.svg)](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml)

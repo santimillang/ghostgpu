@@ -31,7 +31,7 @@ A partition that cannot fit one GPU is rejected with `MIGPartitionInvalid`, and 
 
 Two measured API limits force the layout — at most 8 `sharedCounters` and 64 counter-consuming devices per `ResourceSlice`. A node therefore becomes `ceil(gpus/8)` counter slices plus `ceil(gpus × profiles/64)` device slices in one DRA pool. Counter sets resolve pool-wide, so a GPU's profiles may straddle a slice boundary.
 
-Both limits were measured against a live API server rather than read from documentation — see the [MIG sharding findings](../design/2026-07-30-mig-sharding-findings.md).
+Both limits were measured against a live API server rather than read from documentation — see the [MIG sharding findings](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-30-mig-sharding-findings.md).
 
 ## Interaction with occupancy
 
