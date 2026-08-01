@@ -156,37 +156,46 @@ var _ = Describe("metrics", Ordered, func() {
 	// An empty pod label is a distinct time series that sum by (pod) would
 	// group on, which is exactly the confusion to avoid.
 	It("gives idle GPUs no workload labels at all", func() {
-		// Scoped to this scenario's own node. The exporter publishes the whole
-		// cluster from one endpoint, so counting every unlabelled series in the
-		// exposition would make this assertion depend on which other suites
-		// happen to have a fleet up at the time.
-		idle := 0
+		// Scoped to this scenario's own node, because the exporter publishes the
+		// whole cluster from one endpoint.
+		//
+		// Deliberately does NOT assert how many devices are idle. A DRA claim is
+		// satisfied by any device of the right class anywhere in the cluster, so
+		// a workload from another suite can legitimately hold one of this node's
+		// GPUs and move that count — which is what made an earlier Equal(2) here
+		// flake. What this test is about is what an unheld device reports, not
+		// how many happen to be unheld.
+		var onNode, idle []string
 		for _, line := range strings.Split(exposition, "\n") {
-			if !strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") {
+			if !strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") ||
+				!strings.Contains(line, `Hostname="`+metricsNode+`"`) {
 				continue
 			}
-			if !strings.Contains(line, `Hostname="`+metricsNode+`"`) {
-				continue
+			onNode = append(onNode, line)
+			if !strings.Contains(line, "pod=") {
+				idle = append(idle, line)
 			}
-			if strings.Contains(line, "pod=") {
-				continue
-			}
-			idle++
-			Expect(line).NotTo(ContainSubstring("namespace="))
+		}
+
+		Expect(onNode).To(HaveLen(4),
+			"each of the node's four GPUs should report utilization; its lines were:\n"+
+				strings.Join(onNode, "\n"))
+
+		for _, line := range idle {
+			Expect(line).NotTo(ContainSubstring("namespace="),
+				"an idle GPU carries no workload labels at all rather than empty ones: "+line)
 			Expect(line).To(HaveSuffix(" 0"), "an unheld GPU is not idle: "+line)
 		}
-		// The node's own utilization lines, so a mismatch reports what it
-		// actually saw rather than only that a count was wrong.
-		var onNode []string
-		for _, line := range strings.Split(exposition, "\n") {
-			if strings.HasPrefix(line, "DCGM_FI_DEV_GPU_UTIL") &&
-				strings.Contains(line, `Hostname="`+metricsNode+`"`) {
-				onNode = append(onNode, line)
-			}
-		}
-		Expect(idle).To(Equal(2),
-			"expected two of this node's four GPUs to be idle and unlabelled; its lines were:\n"+
-				strings.Join(onNode, "\n"))
+
+		// Guards the loop above against passing vacuously. If every device were
+		// held there would be nothing to check, and if none were held the fleet
+		// would not be exercising attribution at all.
+		Expect(idle).NotTo(BeEmpty(), "no idle GPU left on the node to assert against:\n"+
+			strings.Join(onNode, "\n"))
+		Expect(utilizationFor(exposition, "metrics-trainer")).NotTo(BeEmpty(),
+			"this suite's own workload should be holding one of the node's GPUs")
+		Expect(utilizationFor(exposition, "wasteful")).NotTo(BeEmpty(),
+			"this suite's own workload should be holding one of the node's GPUs")
 	})
 
 	// The fixture idle-GPU reclamation needs, and the reason per-workload
