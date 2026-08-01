@@ -1,0 +1,85 @@
+site_name: ghostgpu
+site_description: Simulate GPU clusters on Kubernetes — test GPU-aware schedulers with zero GPU hardware
+site_url: https://santimillang.github.io/ghostgpu/
+repo_url: https://github.com/santimillang/ghostgpu
+repo_name: santimillang/ghostgpu
+edit_uri: edit/main/docs/
+
+# The Helm repository index lives on the same gh-pages branch as this site.
+# index.yaml and index.html do not collide, but the deploy MUST preserve the
+# chart index and tarballs — see .github/workflows/docs.yml.
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Simulating hardware:
+      - MIG: simulating/mig.md
+      - Faults: simulating/faults.md
+      - Occupancy: simulating/occupancy.md
+      - Metrics: simulating/metrics.md
+  - Tools:
+      - ghostgpu capture: tools/capture.md
+      - ghostgpu status: tools/status.md
+  - Scenarios: scenarios.md
+  - Reference:
+      - Fidelity contract: reference/fidelity.md
+  - Design notes:
+      - Overview: design/2026-07-29-ghostgpu-design.md
+      - DRA feasibility spike: design/2026-07-29-spike-findings.md
+      - MIG sharding limits: design/2026-07-30-mig-sharding-findings.md
+      - Occupancy spike: design/2026-07-31-occupancy-spike-findings.md
+      - Fault injection spike: design/2026-07-31-fault-injection-spike-findings.md
+      - Behavioural simulation research: design/2026-07-31-behavioral-simulation-research.md
+      - Helm CRD ordering spike: design/2026-07-31-helm-crd-ordering-spike.md
+      - Distribution design: design/2026-07-31-distribution-design.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/santimillang/ghostgpu
