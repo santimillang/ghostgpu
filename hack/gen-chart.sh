@@ -25,6 +25,35 @@ RENDERED="$(mktemp)"
 trap 'rm -f "$RENDERED"' EXIT
 "${KUSTOMIZE}" build config/helm > "${RENDERED}"
 
+# Both sentinels must be present in what kustomize just rendered, BEFORE any
+# substitution runs. config/helm's own images transformer only matches an
+# image literally named "controller" (see config/helm/kustomization.yaml). If
+# config/manager/kustomization.yaml already carries an `images:` override —
+# which `make build-installer` and `make test-e2e` both write via
+# `kustomize edit set image` — the image in config/manager is no longer named
+# "controller" by the time config/helm's overlay runs, so config/helm's
+# transformer silently matches nothing and the sentinel is never introduced.
+# The chart then hardcodes whatever image kustomization.yaml last set, and
+# `image.repository`/`image.tag` become inert. Checking only whether a
+# sentinel SURVIVED (below) cannot catch this, because it never arrived.
+if ! grep -q "$NS_SENTINEL" "$RENDERED" || ! grep -q "$IMG_SENTINEL" "$RENDERED"; then
+  {
+    echo "gen-chart: kustomize did not emit one or both sentinels."
+    grep -q "$NS_SENTINEL" "$RENDERED" || echo "  missing namespace sentinel ($NS_SENTINEL)"
+    grep -q "$IMG_SENTINEL" "$RENDERED" || echo "  missing image sentinel ($IMG_SENTINEL)"
+    echo
+    echo "Likely cause: config/manager/kustomization.yaml has a leftover"
+    echo "'images:' override (from 'kustomize edit set image', e.g. via"
+    echo "'make build-installer' or 'make test-e2e'). That renames the"
+    echo "controller image before config/helm's own image transformer runs,"
+    echo "so config/helm's matcher (name: controller) finds nothing and the"
+    echo "chart would hardcode a fixed image instead of a Helm value."
+    echo "Fix: 'git checkout -- config/manager/kustomization.yaml' (or"
+    echo "otherwise remove the images: override) and re-run 'make helm'."
+  } >&2
+  exit 1
+fi
+
 # Split by kind. CRDs are cluster-scoped and never carry the namespace, so they
 # are written before any substitution touches them.
 python3 - "$RENDERED" "$CHART_DIR" "$NS_SENTINEL" "$IMG_SENTINEL" <<'PY'

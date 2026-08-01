@@ -73,7 +73,7 @@ Each node now advertises `nvidia.com/gpu: 8`, GPU Feature Discovery labels, and 
 `--dry-run` prints the manifests instead of applying them, and contacts no cluster:
 
 ```sh
-./bin/ghostgpu up --gpu NVIDIA-A100-SXM4-40GB --memory 40Gi \
+./ghostgpu up --gpu NVIDIA-A100-SXM4-40GB --memory 40Gi \
   --compute-capability 8.0 --dry-run | kubectl apply -f -
 ```
 
@@ -82,7 +82,7 @@ Each node now advertises `nvidia.com/gpu: 8`, GPU Feature Discovery labels, and 
 Partition each GPU into MIG instances and let the scheduler enforce that overlapping profiles on one card are mutually exclusive:
 
 ```sh
-./bin/ghostgpu up --gpu NVIDIA-H100-80GB-HBM3 --sharing-mode mig --gpus-per-node 16
+./ghostgpu up --gpu NVIDIA-H100-80GB-HBM3 --sharing-mode mig --gpus-per-node 16
 ```
 
 Profiles come from built-in tables matching NVIDIA's published instance counts, so an H100 offers seven `1g.10gb` per card but only four `1g.20gb` — memory binds before compute slices do. `--mig-profiles 1g.10gb,3g.40gb` restricts a pool to a subset.
@@ -92,7 +92,7 @@ Exclusivity is enforced by the upstream scheduler through DRA shared counters; g
 By default this models **dynamic MIG**, as NVIDIA's DRA driver does: every profile is offered and the scheduler picks. To model **static MIG**, where an administrator pre-created the instances, declare them:
 
 ```sh
-./bin/ghostgpu up --gpu NVIDIA-H100-80GB-HBM3 --sharing-mode mig \
+./ghostgpu up --gpu NVIDIA-H100-80GB-HBM3 --sharing-mode mig \
   --mig-partition 3g.40gb=1,1g.10gb=4
 ```
 
@@ -175,7 +175,7 @@ spec:
     - busyPerNode: 2      # no selector: the default for everything else
 ```
 
-Entries are first-match-wins, so ordering is meaningful and a selector-less entry reads as a default. `ghostgpu up --busy-per-node 2` covers the even case from one flag.
+Entries are first-match-wins, so ordering is meaningful and a selector-less entry reads as a default. `./ghostgpu up --busy-per-node 2` covers the even case from one flag.
 
 Occupied GPUs are still published — a busy fleet has the same hardware as an idle one — but they carry a DRA device taint, so the upstream scheduler will not allocate them, and the legacy path advertises `allocatable` below `capacity`. ghostgpu never writes `ResourceClaim.status`: allocation is state the scheduler owns, and forging it would make the simulation lie to the very component under test. Lifting the occupancy releases the devices, so a pending job can be made schedulable mid-test.
 
@@ -186,8 +186,8 @@ Under `sharingMode: mig`, `busyPerNode` still counts whole cards and every insta
 Describing your fleet by hand is guesswork about exactly the details that matter — the ones that differ from the defaults are usually the ones causing the bug you are chasing. `ghostgpu capture` reads a cluster that already has GPUs and prints the manifests that reproduce it:
 
 ```sh
-ghostgpu capture --context prod-us-east > fleet.yaml
-ghostgpu capture --context prod-us-east | kubectl apply -f -
+./ghostgpu capture --context prod-us-east > fleet.yaml
+./ghostgpu capture --context prod-us-east | kubectl apply -f -
 ```
 
 Everything comes from what such a cluster already publishes: GFD labels give the product, memory, and compute capability; `nvidia.com/mig-*` capacity gives the per-GPU MIG layout; `ResourceSlice` attributes give NVLink domains and NUMA locality. Distinct node shapes become distinct pools, and the kwok `Node` manifests come with them, so applying the output is enough to have the fleet — `--nodes=false` prints only the pools.
@@ -201,17 +201,17 @@ Capture is lossy by design: it reproduces *shape*, not workloads. Anything it ca
 Scheduling is the point, so ghostgpu can tell you what the scheduler did without hand-writing jsonpath against `ResourceClaim`s:
 
 ```sh
-$ ghostgpu status
+$ ./ghostgpu status
 POOL       MODE  NODES  DEVICES  OCCUPIED  ALLOCATED  FREE
 h100-pool  mig   2      40       10        1          29
 
-$ ghostgpu status --node ghost-mig-0
+$ ./ghostgpu status --node ghost-mig-0
 NODE         DEVICE           PROFILE  STATUS     POD
 ghost-mig-0  gpu-0-1g-10gb-0  1g.10gb  free       -
 ghost-mig-0  gpu-0-3g-40gb-0  3g.40gb  allocated  default/trainer
 ghost-mig-0  gpu-1-1g-10gb-0  1g.10gb  occupied   (declared)
 
-$ ghostgpu status --budgets --node ghost-mig-0
+$ ./ghostgpu status --budgets --node ghost-mig-0
 NODE         GPU    SLICES  MEMORY
 ghost-mig-0  gpu-0  3/7     40Gi/80Gi
 ghost-mig-0  gpu-1  0/7     0/80Gi
