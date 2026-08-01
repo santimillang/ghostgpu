@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/ghostgpu.svg" width="104" alt="">
+<img src="docs/assets/ghostgpu.svg" width="104" alt="ghostgpu">
 
 # ghostgpu
 
@@ -27,6 +27,8 @@ Already verified against a real `kube-scheduler`: pods are placed against simula
 
 ## Quickstart
 
+Needs [`kwokctl`](https://kwok.sigs.k8s.io/docs/user/installation/), [`kind`](https://kind.sigs.k8s.io/docs/user/quick-start/#installation), [`kubectl`](https://kubernetes.io/docs/tasks/tools/), [Helm](https://helm.sh/docs/intro/install/), and Docker. No GPU, no NVIDIA driver, and no GPU node — that is the point.
+
 ```sh
 # 1. A kwok cluster with DRA enabled, and two simulated nodes to put GPUs on
 kwokctl create cluster --name ghostgpu --runtime kind \
@@ -38,8 +40,10 @@ kwokctl scale node --name ghostgpu --replicas 2
 helm install ghostgpu oci://ghcr.io/santimillang/charts/ghostgpu \
   --namespace ghostgpu-system --create-namespace
 
-# 3. Get the CLI
-curl -sSfL https://github.com/santimillang/ghostgpu/releases/latest/download/ghostgpu_linux_amd64.tar.gz \
+# 3. Get the CLI for this machine (linux/darwin, amd64/arm64)
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+arch=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+curl -sSfL "https://github.com/santimillang/ghostgpu/releases/latest/download/ghostgpu_${os}_${arch}.tar.gz" \
   | tar xz ghostgpu
 
 # 4. Give your kwok nodes some GPUs
@@ -78,19 +82,23 @@ Each node now advertises `nvidia.com/gpu: 8`, GPU Feature Discovery labels, and 
 | [Pre-existing occupancy and fragmentation](https://santimillang.github.io/ghostgpu/simulating/occupancy/) | working |
 | [DCGM-shaped metrics with per-pod attribution](https://santimillang.github.io/ghostgpu/simulating/metrics/) | working |
 | [Fault injection](https://santimillang.github.io/ghostgpu/simulating/faults/) — XID, device loss, drain-before-reboot | working |
-| Behavioural phase timeline | deferred, [with reasons](https://santimillang.github.io/ghostgpu/design/2026-07-31-behavioral-simulation-research/) |
+| Behavioral phase timeline | deferred, [with reasons](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-behavioral-simulation-research.md) |
 
 **The metrics are attributed, and the attribution is correct.** `namespace`, `pod`, and `container` come straight from `ResourceClaim.status`, which the scheduler wrote — there is nothing to re-derive from a container runtime, which is where real exporters accumulate bugs.
 
 What ghostgpu does *not* simulate is written down just as plainly — see the [fidelity contract](https://santimillang.github.io/ghostgpu/reference/fidelity/).
 
-## What makes it different
+## Prior art, and what makes this different
 
-**MIG-instance fidelity.** Overlapping profiles on one physical card are mutually exclusive, enforced by the upstream scheduler through DRA shared counters — ghostgpu contributes no allocation logic of its own.
+[`fake-gpu-operator`](https://github.com/run-ai/fake-gpu-operator) (run:ai) is actively maintained and already covers capacity advertising, dynamic GPU-utilization metrics, and basic DRA on kwok. **If that is all you need, use it** — it is the mature option.
 
-**Fault injection.** Hardware failure is the hardest thing to test for, because you cannot arrange it on demand. Declare it instead, and the workload is evicted with its `ResourceClaim` released so it can reschedule.
+ghostgpu's genuine deltas are three:
 
-**Attribution read from scheduler state.** `namespace`, `pod`, and `container` come from `ResourceClaim.status`, which the scheduler wrote — not re-derived from a container runtime, which is where exporters accumulate bugs under MIG.
+**MIG-instance exclusivity.** Overlapping profiles on one physical card are mutually exclusive, enforced by the upstream scheduler through DRA shared counters — ghostgpu contributes no allocation logic of its own.
+
+**Declarative fault injection.** Hardware failure is the hardest thing to test for, because you cannot arrange it on demand. Declare it instead, and the workload is evicted with its `ResourceClaim` released so it can reschedule onto healthy hardware.
+
+**Attribution read from scheduler state.** `namespace`, `pod`, and `container` come from `ResourceClaim.status`, which the scheduler wrote — not re-derived from a container runtime, which is where exporters accumulate labelling bugs under MIG.
 
 ## Development
 

@@ -22,7 +22,7 @@ Already verified against a real `kube-scheduler`: pods are placed against simula
 | [Pre-existing occupancy and fragmentation](simulating/occupancy.md) | working |
 | [DCGM-shaped metrics with per-pod attribution](simulating/metrics.md) | working |
 | [Fault injection](simulating/faults.md) — XID, device loss, drain-before-reboot | working |
-| Behavioural phase timeline (download → warmup → training) | deferred, [see the research](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-behavioral-simulation-research.md) |
+| Behavioral phase timeline (download → warmup → training) | deferred, [see the research](https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-behavioral-simulation-research.md) |
 
 ## The differentiator
 
@@ -30,13 +30,17 @@ Already verified against a real `kube-scheduler`: pods are placed against simula
 
 `namespace`, `pod`, and `container` — and under MIG `GPU_I_ID` and `GPU_I_PROFILE` — come straight from `ResourceClaim.status`, which the scheduler wrote. That is the payoff of the DRA-first design: there is nothing to re-derive from a container runtime, which is where real exporters accumulate bugs.
 
-## What makes it different
+## Prior art, and what makes this different
 
-**MIG-instance fidelity.** Overlapping profiles on one physical card are mutually exclusive, enforced by the upstream scheduler through DRA shared counters — ghostgpu contributes no allocation logic of its own.
+[`fake-gpu-operator`](https://github.com/run-ai/fake-gpu-operator) (run:ai) is actively maintained and already covers capacity advertising, dynamic GPU-utilization metrics, and basic DRA on kwok. **If that is all you need, use it** — it is the mature option.
 
-**Fault injection.** Hardware failure is the hardest thing to test for, because you cannot arrange it on demand. Declare it instead, and the workload is evicted with its `ResourceClaim` released so it can reschedule onto healthy hardware.
+ghostgpu's genuine deltas are three:
 
-**Attribution read from scheduler state.** `namespace`, `pod`, and `container` come from `ResourceClaim.status`, which the scheduler wrote — not re-derived from a container runtime, which is where exporters accumulate bugs under MIG.
+**MIG-instance exclusivity.** Overlapping profiles on one physical card are mutually exclusive, enforced by the upstream scheduler through DRA shared counters — ghostgpu contributes no allocation logic of its own.
+
+**Declarative fault injection.** Hardware failure is the hardest thing to test for, because you cannot arrange it on demand. Declare it instead, and the workload is evicted with its `ResourceClaim` released so it can reschedule onto healthy hardware.
+
+**Attribution read from scheduler state.** `namespace`, `pod`, and `container` come from `ResourceClaim.status`, which the scheduler wrote — not re-derived from a container runtime, which is where exporters accumulate labelling bugs under MIG.
 
 ## Safety
 
