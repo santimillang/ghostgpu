@@ -23,6 +23,11 @@ kind: Pod
 metadata:
   name: one-slice
 spec:
+  # Scoped to this scenario's own nodes. A DRA claim is satisfied by any
+  # device of the right class anywhere in the cluster, so without this a
+  # pod could take a GPU belonging to another example applied alongside it.
+  nodeSelector:
+    example: mig-exclusivity
   tolerations:
     - key: kwok.x-k8s.io/node
       operator: Equal
