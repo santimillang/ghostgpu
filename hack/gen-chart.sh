@@ -5,7 +5,7 @@
 # CRDs go to crds/ rather than templates/: Helm resolves REST mappings for the
 # whole release before creating anything, so a GPUPool in templates/ beside its
 # own CRD fails on first install. Verified in
-# docs/superpowers/specs/2026-07-31-helm-crd-ordering-spike.md. The cost is that
+# docs/design/2026-07-31-helm-crd-ordering-spike.md. The cost is that
 # `helm upgrade` will not update CRDs, which is documented in the chart README.
 set -euo pipefail
 
