@@ -31,7 +31,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Aligned with every other workflow, and the one that most needs it: this
+      # is the only job holding contents, packages, id-token and attestations
+      # write. fetch-depth 0 because GoReleaser documents needing full history
+      # and tags to resolve a version, and a shallow clone only warns.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Resolve version
         id: version

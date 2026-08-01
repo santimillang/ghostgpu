@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"context"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
@@ -48,6 +49,9 @@ var help = map[string]string{
 // attributing a GPU to.
 const podsResource = "pods"
 
+// collectTimeout bounds one scrape's reads against the API server.
+const collectTimeout = 10 * time.Second
+
 // Exporter is a Prometheus collector publishing the simulated fleet.
 //
 // It reads on every scrape rather than maintaining state. That keeps the
@@ -76,7 +80,14 @@ func (e *Exporter) Describe(chan<- *prometheus.Desc) {}
 // for a cluster that could not be read would be the one failure mode a
 // simulator must never have.
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
-	ctx := context.Background()
+	// Bounded, because Prometheus gives up on a slow scrape and comes back.
+	// With no deadline, a wedged API server would leave every collect goroutine
+	// parked indefinitely while a fresh one arrived each scrape interval, so
+	// the operator would leak goroutines for as long as the outage lasted.
+	// Comfortably under a default scrape timeout, so the deadline here fires
+	// before Prometheus stops listening.
+	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
+	defer cancel()
 
 	cards, err := e.snapshot(ctx)
 	if err != nil {

@@ -28,10 +28,18 @@ ghostgpu must never modify a Node lacking the `kwok.x-k8s.io/node` annotation. T
 
 This is defence against *accident* — an operator pointed at the wrong cluster, or a `nodeSelector` matching more broadly than intended. It is not, on its own, defence against a compromised operator, which would hold the RBAC to bypass it.
 
+### The simulated-GPU metrics endpoint
+
+The DCGM-shaped metrics on port 9400 are served by a plain handler behind a ClusterIP service, with **no authentication or authorization**. Anything that can reach the service can read them, and they include the namespace, pod, and container names of the workloads holding simulated GPUs.
+
+This matches real dcgm-exporter, which is also unauthenticated, and it is a deliberate choice: an existing scrape config should find this endpoint unchanged. It is called out because it is a different posture from the operator's *own* metrics on port 8443, which are protected by authentication and authorization filters.
+
+If the workload names in a cluster are themselves sensitive, restrict access with a NetworkPolicy.
+
 ### Deployment guidance
 
 - Do not install ghostgpu in a production cluster.
-- Scope its RBAC to the minimum your scenario needs; disabling `advertise.extendedResource` removes the need for `nodes/status` writes entirely if you only test DRA.
+- Scope its RBAC to the minimum your scenario needs. Disabling `advertise.extendedResource` means ghostgpu stops writing `nodes/status`, which lets you scope that permission down — the shipped ClusterRole is static and still grants it, so this is a change you make, not one the setting makes for you. The GFD node labels still require `nodes` write regardless.
 - Treat any cluster running ghostgpu as untrusted for scheduling-correctness purposes: by design, the capacity it reports is fiction.
 
 ### Out of scope
