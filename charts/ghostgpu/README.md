@@ -26,16 +26,6 @@ helm install ghostgpu oci://ghcr.io/santimillang/charts/ghostgpu \
 `FetchReference ... not found` — the OCI registry only knows the stripped
 form.
 
-### `helm repo add`
-
-A classic Helm repository is published alongside the OCI one:
-
-```sh
-helm repo add ghostgpu https://santimillang.github.io/ghostgpu
-helm repo update
-helm install ghostgpu ghostgpu/ghostgpu \
-  --namespace ghostgpu-system --create-namespace
-```
 
 ## Values
 

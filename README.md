@@ -1,7 +1,6 @@
 # ghostgpu
 
 [![Tests](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml/badge.svg)](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/santimillang/ghostgpu)](https://goreportcard.com/report/github.com/santimillang/ghostgpu)
 [![Release](https://img.shields.io/github/v/release/santimillang/ghostgpu?include_prereleases&sort=semver&label=release)](https://github.com/santimillang/ghostgpu/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 

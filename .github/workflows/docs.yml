@@ -1,11 +1,13 @@
 # Publishes the documentation site to the gh-pages branch.
 #
-# The Helm repository index lives on that same branch, published by
-# chart-pages.yml. That is why this deploy uses peaceiris with
-# keep_files: true rather than `mkdocs gh-deploy`, which force-pushes and
-# would silently delete index.yaml and every packaged chart — breaking
-# `helm repo add` for anyone who had already run it, with no failing build
-# to notice it.
+# Nothing else lives on that branch: the Helm chart is published only as an
+# OCI artifact on ghcr, deliberately, so this deploy owns gh-pages outright
+# and there is no other publisher to clobber.
+#
+# If a classic `helm repo add` index is ever added back, it would land on
+# this same branch — Pages serves exactly one source — and this deploy would
+# need `keep_files: true`, or it would silently unpublish the chart
+# repository with no failing build to notice.
 name: Docs
 
 on:
@@ -56,7 +58,3 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./site
-          # Preserves index.yaml and the chart tarballs that chart-pages.yml
-          # writes to this branch. Without it, publishing the docs would
-          # unpublish the Helm repository.
-          keep_files: true
