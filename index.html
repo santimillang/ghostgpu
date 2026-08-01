@@ -333,9 +333,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-makes-it-different" class="md-nav__link">
+  <a href="#prior-art-and-what-makes-this-different" class="md-nav__link">
     <span class="md-ellipsis">
-      What makes it different
+      Prior art, and what makes this different
     </span>
   </a>
   
@@ -767,9 +767,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-makes-it-different" class="md-nav__link">
+  <a href="#prior-art-and-what-makes-this-different" class="md-nav__link">
     <span class="md-ellipsis">
-      What makes it different
+      Prior art, and what makes this different
     </span>
   </a>
   
@@ -848,7 +848,7 @@
 <td>working</td>
 </tr>
 <tr>
-<td>Behavioural phase timeline (download → warmup → training)</td>
+<td>Behavioral phase timeline (download → warmup → training)</td>
 <td>deferred, <a href="https://github.com/santimillang/ghostgpu/blob/main/docs/design/2026-07-31-behavioral-simulation-research.md">see the research</a></td>
 </tr>
 </tbody>
@@ -856,10 +856,12 @@
 <h2 id="the-differentiator">The differentiator<a class="headerlink" href="#the-differentiator" title="Permanent link">&para;</a></h2>
 <p><strong>The metrics are attributed, and the attribution is correct.</strong></p>
 <p><code>namespace</code>, <code>pod</code>, and <code>container</code> — and under MIG <code>GPU_I_ID</code> and <code>GPU_I_PROFILE</code> — come straight from <code>ResourceClaim.status</code>, which the scheduler wrote. That is the payoff of the DRA-first design: there is nothing to re-derive from a container runtime, which is where real exporters accumulate bugs.</p>
-<h2 id="what-makes-it-different">What makes it different<a class="headerlink" href="#what-makes-it-different" title="Permanent link">&para;</a></h2>
-<p><strong>MIG-instance fidelity.</strong> Overlapping profiles on one physical card are mutually exclusive, enforced by the upstream scheduler through DRA shared counters — ghostgpu contributes no allocation logic of its own.</p>
-<p><strong>Fault injection.</strong> Hardware failure is the hardest thing to test for, because you cannot arrange it on demand. Declare it instead, and the workload is evicted with its <code>ResourceClaim</code> released so it can reschedule onto healthy hardware.</p>
-<p><strong>Attribution read from scheduler state.</strong> <code>namespace</code>, <code>pod</code>, and <code>container</code> come from <code>ResourceClaim.status</code>, which the scheduler wrote — not re-derived from a container runtime, which is where exporters accumulate bugs under MIG.</p>
+<h2 id="prior-art-and-what-makes-this-different">Prior art, and what makes this different<a class="headerlink" href="#prior-art-and-what-makes-this-different" title="Permanent link">&para;</a></h2>
+<p><a href="https://github.com/run-ai/fake-gpu-operator"><code>fake-gpu-operator</code></a> (run:ai) is actively maintained and already covers capacity advertising, dynamic GPU-utilization metrics, and basic DRA on kwok. <strong>If that is all you need, use it</strong> — it is the mature option.</p>
+<p>ghostgpu's genuine deltas are three:</p>
+<p><strong>MIG-instance exclusivity.</strong> Overlapping profiles on one physical card are mutually exclusive, enforced by the upstream scheduler through DRA shared counters — ghostgpu contributes no allocation logic of its own.</p>
+<p><strong>Declarative fault injection.</strong> Hardware failure is the hardest thing to test for, because you cannot arrange it on demand. Declare it instead, and the workload is evicted with its <code>ResourceClaim</code> released so it can reschedule onto healthy hardware.</p>
+<p><strong>Attribution read from scheduler state.</strong> <code>namespace</code>, <code>pod</code>, and <code>container</code> come from <code>ResourceClaim.status</code>, which the scheduler wrote — not re-derived from a container runtime, which is where exporters accumulate labelling bugs under MIG.</p>
 <h2 id="safety">Safety<a class="headerlink" href="#safety" title="Permanent link">&para;</a></h2>
 <p>ghostgpu only ever modifies nodes carrying kwok's <code>kwok.x-k8s.io/node</code> annotation. A node without it is never touched, whatever a pool selector matches — see the <a href="https://github.com/santimillang/ghostgpu/blob/main/.github/SECURITY.md">threat model</a>.</p>
 
