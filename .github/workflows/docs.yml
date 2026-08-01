@@ -11,17 +11,19 @@
 name: Docs
 
 on:
+  # Deploys only when something that affects the site actually changed.
   push:
     branches: [main]
     paths:
       - "docs/**"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
+  # Deliberately NOT path-filtered. `docs` is a required status check on main,
+  # and a required check that never runs is never reported, which leaves every
+  # pull request touching only code permanently blocked on a pending status.
+  # The build takes about fifteen seconds, so running it always is cheaper than
+  # the trap.
   pull_request:
-    paths:
-      - "docs/**"
-      - "mkdocs.yml"
-      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions: {}
