@@ -1,0 +1,62 @@
+# Publishes the documentation site to the gh-pages branch.
+#
+# The Helm repository index lives on that same branch, published by
+# chart-pages.yml. That is why this deploy uses peaceiris with
+# keep_files: true rather than `mkdocs gh-deploy`, which force-pushes and
+# would silently delete index.yaml and every packaged chart — breaking
+# `helm repo add` for anyone who had already run it, with no failing build
+# to notice it.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    name: docs
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+
+      # Pinned: an unpinned theme upgrade would change the published site
+      # without a commit explaining why.
+      - name: Install mkdocs-material
+        run: pip install "mkdocs-material==9.6.20"
+
+      # --strict fails the build on a broken internal link or a page missing
+      # from the nav. Docs that lie are the specific failure this project
+      # spends effort avoiding, and a dead link is the cheapest kind of lie.
+      - name: Build the site
+        run: mkdocs build --strict
+
+      - name: Deploy to gh-pages
+        if: github.event_name != 'pull_request'
+        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          # Preserves index.yaml and the chart tarballs that chart-pages.yml
+          # writes to this branch. Without it, publishing the docs would
+          # unpublish the Helm repository.
+          keep_files: true
