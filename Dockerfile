@@ -6,7 +6,7 @@
 # roughly ten to twenty times slower — the first release build spent over twenty
 # minutes here. Go cross-compiles to arm64 natively with CGO_ENABLED=0, so the
 # emulation bought nothing.
-FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -31,9 +31,14 @@ COPY . .
 # no benefit here.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o manager cmd/main.go
 
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+# Use distroless as minimal base image to package the manager binary.
+# Refer to https://github.com/GoogleContainerTools/distroless for more details.
+#
+# Both base images are pinned by digest, not by tag. The release signs this
+# image with cosign, attests its provenance and ships an SBOM - all of which
+# describe a build whose inputs would otherwise be mutable. Dependabot tracks
+# the docker ecosystem and will raise the bump.
+FROM gcr.io/distroless/static:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
