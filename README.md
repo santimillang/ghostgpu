@@ -1,16 +1,21 @@
-<img src="docs/assets/ghostgpu.svg" width="88" alt="">
+<div align="center">
+
+<img src="docs/assets/ghostgpu.svg" width="104" alt="">
 
 # ghostgpu
+
+**Simulate GPU clusters on Kubernetes.**<br>
+Test GPU-aware schedulers, autoscalers, and platform tooling with **zero GPU hardware**.
 
 [![Tests](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml/badge.svg)](https://github.com/santimillang/ghostgpu/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/santimillang/ghostgpu?include_prereleases&sort=semver&label=release)](https://github.com/santimillang/ghostgpu/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Simulate GPU clusters on Kubernetes. Test GPU-aware schedulers, autoscalers, and platform tooling with **zero GPU hardware**.
+[**📖 Documentation**](https://santimillang.github.io/ghostgpu/)
+
+</div>
 
 ghostgpu builds on [kwok](https://kwok.sigs.k8s.io/) and publishes Dynamic Resource Allocation (DRA) `ResourceSlice`s plus legacy extended-resource capacity, so a real `kube-scheduler` makes real placement decisions against hardware that does not exist.
-
-**📖 [Documentation](https://santimillang.github.io/ghostgpu/)**
 
 > **Status:** early development. The core works and is covered end-to-end against a real `kube-scheduler`, but the `v1alpha1` API carries no compatibility guarantee yet.
 
