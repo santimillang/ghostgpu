@@ -6,7 +6,7 @@
 # roughly ten to twenty times slower — the first release build spent over twenty
 # minutes here. Go cross-compiles to arm64 natively with CGO_ENABLED=0, so the
 # emulation bought nothing.
-FROM --platform=$BUILDPLATFORM golang:1.26@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27rc3@sha256:6a284ec7a8c67eff5882aaa53b07a57ee397553f8c85a92e5fc97c517f12201f AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
