@@ -2,42 +2,42 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://santimillang.github.io/ghostgpu/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/getting-started/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/scenarios/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/reference/fidelity/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/simulating/faults/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/simulating/metrics/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/simulating/mig/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/simulating/occupancy/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/tools/capture/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
     <url>
          <loc>https://santimillang.github.io/ghostgpu/tools/status/</loc>
-         <lastmod>2026-08-01</lastmod>
+         <lastmod>2026-10-12</lastmod>
     </url>
 </urlset>

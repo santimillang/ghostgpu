@@ -796,9 +796,9 @@
 
 <h1 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h1>
 <p>The operator serves DCGM-shaped telemetry for the simulated fleet on port 9400 — dcgm-exporter's conventional port, so an existing scrape config or <code>ServiceMonitor</code> finds it unchanged:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>DCGM_FI_DEV_GPU_UTIL{gpu=&quot;0&quot;,UUID=&quot;GPU-8f3a…&quot;,modelName=&quot;NVIDIA H100 80GB HBM3&quot;,Hostname=&quot;ghost-0&quot;,namespace=&quot;team-a&quot;,pod=&quot;trainer&quot;,container=&quot;train&quot;} 85
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>DCGM_FI_DEV_FB_USED{gpu=&quot;0&quot;,…,pod=&quot;trainer&quot;} 57344
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>DCGM_FI_DEV_GPU_UTIL{gpu=&quot;1&quot;,…} 0
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-8f3a…",modelName="NVIDIA H100 80GB HBM3",Hostname="ghost-0",namespace="team-a",pod="trainer",container="train"} 85
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>DCGM_FI_DEV_FB_USED{gpu="0",…,pod="trainer"} 57344
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>DCGM_FI_DEV_GPU_UTIL{gpu="1",…} 0
 </code></pre></div>
 <p>Metric and label names are taken from dcgm-exporter's default counter set rather than from memory, and pinned by a test, because dashboards and KEDA queries hardcode them exactly as tooling hardcodes GFD labels.</p>
 <h2 id="the-numbers-are-attributed">The numbers are attributed<a class="headerlink" href="#the-numbers-are-attributed" title="Permanent link">&para;</a></h2>
@@ -821,7 +821,7 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">spec</span><span class="p">:</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">utilization</span><span class="p">:</span>
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">whenAllocated</span><span class="p">:</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">      </span><span class="nt">gpuUtil</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span><span class="w">                    </span><span class="c1"># the fleet&#39;s well-behaved default</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">      </span><span class="nt">gpuUtil</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">90</span><span class="w">                    </span><span class="c1"># the fleet's well-behaved default</span>
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">workloads</span><span class="p">:</span>
 <a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">podSelector</span><span class="p">:</span>
 <a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">          </span><span class="nt">matchLabels</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">job</span><span class="p">:</span><span class="w"> </span><span class="nv">notebook</span><span class="p p-Indicator">}</span>
